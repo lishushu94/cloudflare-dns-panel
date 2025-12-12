@@ -27,9 +27,8 @@
 # 🔴 必须设置（生产环境）
 JWT_SECRET=your-random-jwt-secret-min-32-chars-here
 ENCRYPTION_KEY=your-32-character-encryption-key!!
+DATABASE_URL=file:/app/data/database.db
 
-# 🟡 建议设置
-CORS_ORIGIN=http://localhost:3000
 ```
 
 **生成安全密钥：**
@@ -137,7 +136,7 @@ docker run -d \
 | :--- | :--- | :--- | :---: | :--- |
 | `JWT_SECRET` | JWT 签名密钥 | `default-secret-key` | 🔴 **是** | 用于签名用户登录 Token，生产环境必须修改 |
 | `ENCRYPTION_KEY` | 数据加密密钥 | `default-32-character-key-here!` | 🔴 **是** | 用于加密 Cloudflare API Token，必须 32 字符 |
-| `DATABASE_URL` | 数据库路径 | `file:./database.db` | 🟡 建议 | SQLite 数据库文件路径，建议挂载到 volume |
+| `DATABASE_URL` | 数据库路径 | `file:./database.db` | � **是** | SQLite 数据库文件路径，生产环境必须显式设置并挂载到 volume（Docker 推荐：`file:/app/data/database.db`） |
 | `CORS_ORIGIN` | CORS 允许的源 | `http://localhost:5173` | 🟡 建议 | 生产环境需设置为实际域名 |
 | `NODE_ENV` | 运行环境 | `development` | ❌ 否 | `production` 或 `development` |
 | `PORT` | 服务器端口 | `3000` | ❌ 否 | 后端监听端口 |
