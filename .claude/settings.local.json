@@ -8,7 +8,9 @@
       "Bash(findstr:*)",
       "Bash(taskkill:*)",
       "Bash(powershell -Command \"Stop-Process -Id 67880 -Force\")",
-      "Bash(dir /s /b node_modulescloudflare*.d.ts)"
+      "Bash(dir /s /b node_modulescloudflare*.d.ts)",
+      "Bash(npm run build:*)",
+      "Bash(cat:*)"
     ]
   }
 }

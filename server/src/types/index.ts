@@ -33,7 +33,7 @@ export type ActionType = 'CREATE' | 'UPDATE' | 'DELETE';
 /**
  * 资源类型
  */
-export type ResourceType = 'DNS' | 'ZONE' | 'HOSTNAME' | 'USER';
+export type ResourceType = 'DNS' | 'ZONE' | 'HOSTNAME' | 'USER' | 'FALLBACK_ORIGIN';
 
 /**
  * 操作状态

@@ -95,7 +95,7 @@ export class AuthService {
         email: user.email,
       },
       config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn }
+      { expiresIn: config.jwt.expiresIn as any }
     );
 
     return {

@@ -116,10 +116,10 @@ export class CloudflareService {
         id: response.id,
         type: response.type as any,
         name: response.name,
-        content: response.content,
+        content: response.content as string,
         ttl: response.ttl,
-        proxied: response.proxied || false,
-        priority: response.priority,
+        proxied: (response as any).proxied || false,
+        priority: (response as any).priority,
       };
     } catch (error: any) {
       throw new Error(`创建 DNS 记录失败: ${error.message}`);
@@ -154,10 +154,10 @@ export class CloudflareService {
         id: response.id,
         type: response.type as any,
         name: response.name,
-        content: response.content,
+        content: response.content as string,
         ttl: response.ttl,
-        proxied: response.proxied || false,
-        priority: response.priority,
+        proxied: (response as any).proxied || false,
+        priority: (response as any).priority,
       };
     } catch (error: any) {
       throw new Error(`更新 DNS 记录失败: ${error.message}`);
@@ -225,7 +225,7 @@ export class CloudflareService {
     try {
       // @ts-ignore
       const response = await this.client.customHostnames.fallbackOrigin.get({ zone_id: zoneId });
-      return response.origin || '';
+      return (response as any).origin || '';
     } catch (error: any) {
       // 某些情况下未设置返回空或404，视具体 API 表现而定
       return '';
@@ -242,7 +242,7 @@ export class CloudflareService {
         zone_id: zoneId,
         origin
       });
-      return response.origin;
+      return (response as any).origin;
     } catch (error: any) {
       throw new Error(`更新回退源失败: ${error.message}`);
     }
