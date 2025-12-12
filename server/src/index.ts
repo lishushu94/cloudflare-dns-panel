@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import { config, validateConfig } from './config';
 import { requestLogger } from './middleware/logger';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
@@ -33,6 +34,23 @@ app.use('/api/domains', domainRoutes);
 app.use('/api/dns', dnsRoutes);
 app.use('/api/hostnames', hostnameRoutes);
 app.use('/api/logs', logRoutes);
+
+// 静态文件服务 (生产环境)
+// 在 Docker 中，前端构建产物将被复制到 /app/public
+// 服务器代码在 /app/dist，所以 __dirname 是 /app/dist
+// path.join(__dirname, '../public') 将指向 /app/public
+if (process.env.NODE_ENV === 'production') {
+  const staticDir = path.join(__dirname, '../public');
+  app.use(express.static(staticDir));
+  
+  // SPA 回退处理：非 API 请求返回 index.html
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(staticDir, 'index.html'));
+  });
+}
 
 // 错误处理
 app.use(notFoundHandler);
