@@ -56,11 +56,25 @@ export function validateConfig() {
   const required = ['JWT_SECRET', 'ENCRYPTION_KEY'];
   const missing = required.filter((key) => !process.env[key]);
 
+  // 生产环境必须设置这些环境变量
   if (missing.length > 0 && config.nodeEnv === 'production') {
-    throw new Error(`缺少必需的环境变量: ${missing.join(', ')}`);
+    throw new Error(
+      `缺少必需的环境变量: ${missing.join(', ')}\n` +
+      `请在 docker-compose.yml 或 .env 文件中设置这些变量。\n` +
+      `生成密钥命令:\n` +
+      `  JWT_SECRET: openssl rand -base64 48\n` +
+      `  ENCRYPTION_KEY: openssl rand -hex 16`
+    );
   }
 
+  // 开发环境给出警告
+  if (missing.length > 0 && config.nodeEnv !== 'production') {
+    console.warn(`\n⚠️  警告: 使用默认值的环境变量: ${missing.join(', ')}`);
+    console.warn('   建议: 请通过 .env 文件设置这些值以提高安全性\n');
+  }
+
+  // 验证 ENCRYPTION_KEY 长度
   if (config.encryptionKey.length !== 32) {
-    console.warn('警告: ENCRYPTION_KEY 应该是 32 字符长度');
+    console.warn('⚠️  警告: ENCRYPTION_KEY 应该是 32 字符长度');
   }
 }
