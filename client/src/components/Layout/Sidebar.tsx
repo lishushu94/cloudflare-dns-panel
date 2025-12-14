@@ -114,49 +114,43 @@ export default function Sidebar({ onClose }: SidebarProps) {
 
   return (
         <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', color: 'white' }}>
-                            {/* 品牌 Logo 区域 */}
-                            <Box sx={{ 
-                              px: 3.5,
-                              pt: 3,
-                              display: 'flex', 
-                              alignItems: 'center', 
-                              gap: 2,
-                              color: 'white',
-                            }}>
-                              <Avatar 
-                                sx={{ 
-                                  bgcolor: theme.palette.primary.main,
-                                  width: 48,
-                                  height: 48,
-                                  boxShadow: `0 0 20px ${alpha(theme.palette.primary.main, 0.4)}`
-                                }}
-                                variant="rounded"
-                              >
-                                <CloudIcon fontSize="medium" />
-                              </Avatar>
-                              <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                                <Typography variant="h6" fontWeight="800" sx={{ lineHeight: 1.1, letterSpacing: 0.5, color: 'white', fontSize: '1.2rem' }}>
-                                  CF Panel
-                                </Typography>
-                                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', mt: 0.5, fontSize: '0.8rem', fontWeight: 500 }}>
-                                  DNS 管理系统
-                                </Typography>
-                              </Box>
-                            </Box>
-                      
-                                  <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', mx: 3.5, mt: 2.5, mb: 1 }} />
-                      
+                                  {/* 品牌 Logo 区域 */}
+                                  <Box sx={{ 
+                                    px: 3.5,
+                                    pt: 3,
+                                    pb: 1, // 收紧底部
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    gap: 2,
+                                    color: 'white',
+                                  }}>
+                                    <Avatar 
+                                      sx={{ 
+                                        bgcolor: theme.palette.primary.main,
+                                        width: 48,
+                                        height: 48,
+                                        boxShadow: `0 0 20px ${alpha(theme.palette.primary.main, 0.4)}`
+                                      }}
+                                      variant="rounded"
+                                    >
+                                      <CloudIcon fontSize="medium" />
+                                    </Avatar>
+                                    <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                      <Typography variant="h6" fontWeight="800" sx={{ lineHeight: 1.1, letterSpacing: 0.5, color: 'white', fontSize: '1.2rem' }}>
+                                        CF Panel
+                                      </Typography>
+                                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', mt: 0.5, fontSize: '0.8rem', fontWeight: 500 }}>
+                                        DNS 管理系统
+                                      </Typography>
+                                    </Box>
+                                  </Box>
+                            
+                                  <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', mx: 3.5, mt: 1.5, mb: 0.5 }} />                      
                             
                       
-                                        {/* 仪表盘入口 */}
-                      
-                            
-                      
-                                        <Box sx={{ px: 2, mb: 1 }}>
-                      
-                            
-                      
-                                          <ListItemButton
+      {/* 仪表盘入口 */}
+      <Box sx={{ px: 2, mb: 0 }}>
+        <ListItemButton
                       
                             
                       
@@ -392,13 +386,25 @@ export default function Sidebar({ onClose }: SidebarProps) {
                       
                             
                       
-                                  {/* 供应商列表区域 */}
+                                        {/* 供应商列表区域 */}
+                      
+                            
                       
                                         <List component="nav" sx={{ 
                       
+                            
+                      
                                           px: 2, 
                       
+                            
+                      
+                                          pt: 0,
+                      
+                            
+                      
                                           flexGrow: 1, 
+                      
+                            
                       
                                           overflowY: 'auto',
                       
