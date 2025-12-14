@@ -2,26 +2,25 @@ import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Box,
-  AppBar,
-  Toolbar,
   IconButton,
   Drawer,
   useTheme,
   useMediaQuery,
-  Tabs,
-  Tab,
-  alpha
+  alpha,
+  Breadcrumbs,
+  Typography,
+  Link
 } from '@mui/material';
 import {
   Menu as MenuIcon,
   Dashboard as DashboardIcon,
   History as HistoryIcon,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  NavigateNext as NavigateNextIcon
 } from '@mui/icons-material';
 import Sidebar from './Sidebar';
 
 const drawerWidth = 260;
-const appBarHeight = 64;
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -35,97 +34,44 @@ export default function Layout() {
     setMobileOpen(!mobileOpen);
   };
 
-  const menuItems = [
-    { text: '仪表盘', icon: <DashboardIcon />, path: '/' },
-    { text: '操作日志', icon: <HistoryIcon />, path: '/logs' },
-    { text: '系统设置', icon: <SettingsIcon />, path: '/settings' },
-  ];
-
-  // 确定当前选中的 tab
-  const currentTab = menuItems.find(item => item.path === location.pathname)?.path || 
-                     (location.pathname.startsWith('/domain') ? '/' : false) ||
-                     (location.pathname.startsWith('/hostnames') ? '/' : false) || 
-                     false;
-
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#1e293b' }}>
-      {/* Sidebar 内容 (包含顶部的 Logo 和下方的 DNS 提供商列表) */}
       <Sidebar onClose={() => isMobile && setMobileOpen(false)} />
     </Box>
   );
 
+  // 简单的面包屑逻辑
+  const pathnames = location.pathname.split('/').filter((x) => x);
+  const breadcrumbNameMap: { [key: string]: string } = {
+    logs: '操作日志',
+    settings: '系统设置',
+    domain: '域名管理',
+    hostnames: '主机名管理',
+  };
+
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: theme.palette.background.default }}>
-      {/* 顶部导航栏 */}
-      <AppBar
-        position="fixed"
-        sx={{
-          width: { sm: `calc(100% - ${drawerWidth}px)` }, // 桌面端宽度减去侧边栏宽度
-          ml: { sm: `${drawerWidth}px` }, // 桌面端向右偏移侧边栏宽度
-          zIndex: (theme) => theme.zIndex.drawer + 1,
-          bgcolor: 'rgba(255, 255, 255, 0.9)',
-          backdropFilter: 'blur(8px)',
-          color: 'text.primary',
-          borderBottom: 'none',
-          boxShadow: 'none',
-          height: appBarHeight
+      
+      {/* 移动端菜单按钮 */}
+      <IconButton
+        color="inherit"
+        aria-label="open drawer"
+        edge="start"
+        onClick={handleDrawerToggle}
+        sx={{ 
+          position: 'fixed',
+          top: 16,
+          left: 16,
+          zIndex: (theme) => theme.zIndex.drawer + 2,
+          bgcolor: 'rgba(255,255,255,0.8)',
+          backdropFilter: 'blur(4px)',
+          boxShadow: 1,
+          display: { sm: 'none' },
+          '&:hover': { bgcolor: 'white' }
         }}
-        elevation={0}
       >
-        <Toolbar sx={{ minHeight: appBarHeight }}>
-          <IconButton
-            color="inherit"
-            edge="start"
-            onClick={handleDrawerToggle}
-            sx={{ mr: 2, display: { sm: 'none' } }}
-          >
-            <MenuIcon />
-          </IconButton>
-
-          {/* 桌面端顶部导航菜单 (Logo 已移至 Sidebar) */}
-          <Box sx={{ flexGrow: 1, display: { xs: 'none', sm: 'flex' } }}>
-            <Tabs 
-              value={currentTab} 
-              sx={{ 
-                minHeight: appBarHeight,
-                '& .MuiTabs-indicator': { display: 'none' } 
-              }}
-            >
-              {menuItems.map((item) => (
-                <Tab 
-                  key={item.path}
-                  label={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      {item.icon}
-                      {item.text}
-                    </Box>
-                  }
-                  value={item.path}
-                  onClick={() => navigate(item.path)}
-                  disableRipple
-                  sx={{ 
-                    minHeight: appBarHeight,
-                    px: 2,
-                    fontWeight: 500,
-                    textTransform: 'none',
-                    fontSize: '0.95rem',
-                    color: 'text.secondary',
-                    transition: 'color 0.2s',
-                    '&:hover': {
-                      color: 'text.primary',
-                    },
-                    '&.Mui-selected': {
-                      color: 'primary.main',
-                      fontWeight: 700,
-                      bgcolor: 'transparent'
-                    }
-                  }}
-                />
-              ))}
-            </Tabs>
-          </Box>
-        </Toolbar>
-      </AppBar>
+        <MenuIcon />
+      </IconButton>
 
       {/* 侧边栏容器 */}
       <Box
@@ -142,7 +88,7 @@ export default function Layout() {
             '& .MuiDrawer-paper': { 
               boxSizing: 'border-box', 
               width: drawerWidth,
-              bgcolor: '#1e293b', // 确保深色背景
+              bgcolor: '#1e293b', 
               borderRight: '1px solid rgba(255,255,255,0.1)'
             },
           }}
@@ -156,10 +102,9 @@ export default function Layout() {
             '& .MuiDrawer-paper': { 
               boxSizing: 'border-box', 
               width: drawerWidth,
-              bgcolor: '#1e293b', // 确保深色背景
+              bgcolor: '#1e293b', 
               borderRight: '1px solid rgba(255,255,255,0.1)',
-              // mt: `${appBarHeight}px`, // REMOVED: 侧边栏现在占据全高
-              height: '100%' // 确保全高
+              height: '100%' 
             },
           }}
           open
@@ -174,12 +119,52 @@ export default function Layout() {
         sx={{
           flexGrow: 1,
           p: { xs: 2, sm: 4 },
+          pt: { xs: 8, sm: 3 }, 
           width: { sm: `calc(100% - ${drawerWidth}px)` },
-          mt: `${appBarHeight}px`, // 避开 AppBar
-          minHeight: `calc(100vh - ${appBarHeight}px)`,
+          minHeight: '100vh',
           overflowX: 'hidden'
         }}
       >
+        {/* 面包屑导航栏 */}
+        <Box sx={{ mb: 3, display: { xs: 'none', sm: 'block' } }}>
+          <Breadcrumbs 
+            separator={<NavigateNextIcon fontSize="small" />} 
+            aria-label="breadcrumb"
+            sx={{ '& .MuiBreadcrumbs-li': { fontWeight: 500 } }}
+          >
+            <Link 
+              underline="hover" 
+              color="inherit" 
+              onClick={() => navigate('/')}
+              sx={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}
+            >
+              <DashboardIcon sx={{ mr: 0.5 }} fontSize="inherit" />
+              仪表盘
+            </Link>
+            {pathnames.map((value, index) => {
+              const last = index === pathnames.length - 1;
+              const to = `/${pathnames.slice(0, index + 1).join('/')}`;
+              const name = breadcrumbNameMap[value] || value;
+
+              return last ? (
+                <Typography color="text.primary" key={to} sx={{ fontWeight: 700 }}>
+                  {name}
+                </Typography>
+              ) : (
+                <Link 
+                  underline="hover" 
+                  color="inherit" 
+                  onClick={() => navigate(to)}
+                  key={to}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  {name}
+                </Link>
+              );
+            })}
+          </Breadcrumbs>
+        </Box>
+
         <Outlet />
       </Box>
     </Box>
