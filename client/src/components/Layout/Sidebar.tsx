@@ -114,8 +114,8 @@ export default function Sidebar({ onClose }: SidebarProps) {
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', color: 'white' }}>
       {/* 品牌 Logo 区域 */}
       <Box sx={{ 
-        px: 3,
-        py: 4,
+        px: 3.5,
+        py: 4.5,
         display: 'flex', 
         alignItems: 'center', 
         gap: 2,
@@ -123,44 +123,41 @@ export default function Sidebar({ onClose }: SidebarProps) {
       }}>
         <Avatar 
           sx={{ 
-            bgcolor: theme.palette.secondary.main,
-            width: 44,
-            height: 44,
-            boxShadow: '0 0 15px rgba(59, 130, 246, 0.4)'
+            bgcolor: theme.palette.primary.main, // 使用 Primary Main
+            width: 48,
+            height: 48,
+            boxShadow: `0 0 20px ${alpha(theme.palette.primary.main, 0.4)}`
           }}
-          variant="circular"
+          variant="rounded" // 改为圆角矩形
         >
           <CloudIcon fontSize="medium" />
         </Avatar>
         <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <Typography variant="h6" fontWeight="bold" sx={{ lineHeight: 1.1, letterSpacing: 0.5, color: 'white', fontSize: '1.1rem' }}>
+          <Typography variant="h6" fontWeight="800" sx={{ lineHeight: 1.1, letterSpacing: 0.5, color: 'white', fontSize: '1.2rem' }}>
             CF Panel
           </Typography>
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', mt: 0.3, fontSize: '0.75rem' }}>
+          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', mt: 0.5, fontSize: '0.8rem', fontWeight: 500 }}>
             DNS 管理系统
           </Typography>
         </Box>
       </Box>
 
-      <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)', mx: 3, mb: 2 }} />
+      <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', mx: 3.5, mb: 2.5 }} />
+
+      <Box sx={{ px: 2.5, mb: 1.5 }}>
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>
+          DNS 提供商
+        </Typography>
+      </Box>
 
       <List component="nav" sx={{ 
         px: 2, 
         flexGrow: 1, 
         overflowY: 'auto',
-        '&::-webkit-scrollbar': {
-          width: '4px',
-        },
-        '&::-webkit-scrollbar-track': {
-          background: 'transparent',
-        },
-        '&::-webkit-scrollbar-thumb': {
-          background: 'rgba(255, 255, 255, 0.1)',
-          borderRadius: '4px',
-        },
-        '&::-webkit-scrollbar-thumb:hover': {
-          background: 'rgba(255, 255, 255, 0.2)',
-        },
+        '&::-webkit-scrollbar': { width: '4px' },
+        '&::-webkit-scrollbar-track': { background: 'transparent' },
+        '&::-webkit-scrollbar-thumb': { background: 'rgba(255, 255, 255, 0.1)', borderRadius: '4px' },
+        '&::-webkit-scrollbar-thumb:hover': { background: 'rgba(255, 255, 255, 0.2)' },
       }}>
         {sortedProviders.map((provider) => {
           const config = PROVIDER_CONFIG[provider.type];
@@ -169,39 +166,39 @@ export default function Sidebar({ onClose }: SidebarProps) {
           const hasAccounts = count > 0;
 
           return (
-            <Box key={provider.type} sx={{ mb: 1 }}>
+            <Box key={provider.type} sx={{ mb: 0.8 }}>
               <ListItemButton
                 onClick={() => hasAccounts ? handleSelectProvider(provider.type) : undefined}
                 sx={{
                   borderRadius: '12px',
-                  py: 1,
-                  px: 1.5,
-                  bgcolor: isSelected ? alpha(config.color, 0.1) : 'rgba(255,255,255,0.02)',
+                  py: 1.2,
+                  px: 2,
+                  bgcolor: isSelected ? alpha(config.color, 0.12) : 'transparent',
                   border: '1px solid',
-                  borderColor: isSelected ? alpha(config.color, 0.5) : 'transparent',
-                  color: isSelected ? 'white' : 'rgba(255,255,255,0.7)',
+                  borderColor: isSelected ? alpha(config.color, 0.3) : 'transparent',
+                  color: isSelected ? 'white' : 'rgba(255,255,255,0.75)',
                   transition: 'all 0.2s ease',
                   '&:hover': {
-                    bgcolor: isSelected ? alpha(config.color, 0.15) : 'rgba(255,255,255,0.05)',
-                    borderColor: isSelected ? config.color : 'rgba(255,255,255,0.1)',
+                    bgcolor: isSelected ? alpha(config.color, 0.18) : 'rgba(255,255,255,0.04)',
+                    color: 'white',
+                    transform: 'translateX(4px)'
                   },
-                  opacity: hasAccounts ? 1 : 0.6,
+                  opacity: hasAccounts ? 1 : 0.5,
                   cursor: hasAccounts ? 'pointer' : 'default',
                 }}
               >
-                {/* 图标容器 - 还原彩色背景块 */}
                 <Box
                   sx={{
-                    width: 28,
-                    height: 28,
+                    width: 32,
+                    height: 32,
                     borderRadius: '8px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     bgcolor: alpha(config.color, 0.15),
                     color: config.color,
-                    mr: 1.5,
-                    '& svg': { fontSize: 18 },
+                    mr: 2,
+                    '& svg': { fontSize: 20 },
                   }}
                 >
                   {config.icon}
@@ -211,31 +208,55 @@ export default function Sidebar({ onClose }: SidebarProps) {
                   primary={config.name} 
                   primaryTypographyProps={{ 
                     variant: 'body2', 
-                    fontWeight: isSelected ? 600 : 500,
-                    fontSize: '0.85rem'
+                    fontWeight: isSelected ? 700 : 500,
+                    fontSize: '0.9rem'
                   }}
                 />
+                
+                {hasAccounts && (
+                  <Box
+                    sx={{
+                      bgcolor: isSelected ? config.color : 'rgba(255,255,255,0.1)',
+                      color: isSelected ? 'white' : 'rgba(255,255,255,0.5)',
+                      fontSize: '0.7rem',
+                      fontWeight: 'bold',
+                      borderRadius: '10px',
+                      minWidth: 20,
+                      height: 20,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      px: 0.8
+                    }}
+                  >
+                    {count}
+                  </Box>
+                )}
               </ListItemButton>
             </Box>
           );
         })}
       </List>
       
-      <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)', mx: 0 }} />
+      <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', mx: 0 }} />
       
       {/* 底部用户区域 */}
-      <Box sx={{ p: 2 }}>
+      <Box sx={{ p: 2.5, bgcolor: 'rgba(0,0,0,0.1)' }}>
         <Box 
           sx={{ 
             display: 'flex', 
             alignItems: 'center', 
-            gap: 1.5,
+            gap: 2,
             p: 1.5,
             borderRadius: '12px',
-            bgcolor: 'rgba(255,255,255,0.05)',
+            bgcolor: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.05)',
             cursor: 'pointer',
-            transition: 'background-color 0.2s',
-            '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
+            transition: 'all 0.2s',
+            '&:hover': { 
+              bgcolor: 'rgba(255,255,255,0.08)',
+              borderColor: 'rgba(255,255,255,0.1)'
+            }
           }}
           onClick={handleUserMenuOpen}
         >

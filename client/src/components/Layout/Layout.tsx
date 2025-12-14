@@ -62,11 +62,12 @@ export default function Layout() {
           width: { sm: `calc(100% - ${drawerWidth}px)` }, // 桌面端宽度减去侧边栏宽度
           ml: { sm: `${drawerWidth}px` }, // 桌面端向右偏移侧边栏宽度
           zIndex: (theme) => theme.zIndex.drawer + 1,
-          bgcolor: 'background.paper',
+          bgcolor: 'rgba(255, 255, 255, 0.9)',
+          backdropFilter: 'blur(8px)',
           color: 'text.primary',
-          borderBottom: 1,
+          borderBottom: '1px solid',
           borderColor: 'divider',
-          boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+          boxShadow: 'none',
           height: appBarHeight
         }}
         elevation={0}
@@ -89,7 +90,10 @@ export default function Layout() {
               indicatorColor="primary"
               sx={{ 
                 minHeight: appBarHeight,
-                '& .MuiTabs-indicator': { display: 'none' } // 移除下划线
+                '& .MuiTabs-indicator': { 
+                  height: 3,
+                  borderRadius: '3px 3px 0 0',
+                } 
               }}
             >
               {menuItems.map((item) => (
@@ -109,9 +113,15 @@ export default function Layout() {
                     textTransform: 'none',
                     fontSize: '0.95rem',
                     opacity: 0.7,
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      opacity: 1,
+                      bgcolor: 'rgba(0,0,0,0.02)'
+                    },
                     '&.Mui-selected': {
                       opacity: 1,
-                      color: 'primary.main'
+                      color: 'primary.main',
+                      fontWeight: 700
                     }
                   }}
                 />

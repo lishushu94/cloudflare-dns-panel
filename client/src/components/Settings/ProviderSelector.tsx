@@ -89,6 +89,7 @@ export default function ProviderSelector({ providers, selectedProvider, onSelect
                 sx={{
                   cursor: 'pointer',
                   height: '100%',
+                  borderRadius: '12px',
                   borderColor: isSelected ? brandColor : undefined,
                   bgcolor: isSelected ? alpha(brandColor, 0.04) : undefined,
                   borderWidth: isSelected ? 2 : 1,
@@ -96,8 +97,8 @@ export default function ProviderSelector({ providers, selectedProvider, onSelect
                   '&:hover': {
                     borderColor: brandColor,
                     bgcolor: alpha(brandColor, 0.04),
-                    transform: 'translateY(-1px)',
-                    boxShadow: `0 2px 6px ${alpha(brandColor, 0.15)}`
+                    transform: 'translateY(-2px)',
+                    boxShadow: `0 4px 12px ${alpha(brandColor, 0.15)}`
                   }
                 }}
                 onClick={() => {
@@ -109,22 +110,23 @@ export default function ProviderSelector({ providers, selectedProvider, onSelect
                   display: 'flex', 
                   flexDirection: 'column', 
                   alignItems: 'center', 
-                  p: '12px !important',
-                  gap: 1
+                  p: '16px !important',
+                  gap: 1.5
                 }}>
                   <Box sx={{
-                    p: 0.75,
-                    borderRadius: '8px',
+                    p: 1,
+                    borderRadius: '50%',
                     bgcolor: alpha(brandColor, 0.1),
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    width: 32,
-                    height: 32
+                    width: 40,
+                    height: 40,
+                    transition: 'all 0.2s'
                   }}>
                     {getProviderIcon(provider.type, 'large')}
                   </Box>
-                  <Typography variant="body2" fontWeight="600" align="center" noWrap sx={{ width: '100%', fontSize: '0.8rem' }}>
+                  <Typography variant="body2" fontWeight="600" align="center" noWrap sx={{ width: '100%', fontSize: '0.85rem' }}>
                     {provider.name}
                   </Typography>
                   {/* Radio 按钮对于这种卡片选择模式可能有点多余，这里通过边框和背景色已经能很好区分选中状态了，如果需要可以简化或移除 */}

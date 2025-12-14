@@ -454,12 +454,16 @@ export default function DnsCredentialManagement() {
 
               {!editingCredential && (
                 <Box>
-                  <Typography variant="subtitle2" gutterBottom>选择服务商</Typography>
-                  <ProviderSelector
-                    providers={providers}
-                    selectedProvider={selectedProviderType}
-                    onSelect={(type) => setValue('provider', type)}
-                  />
+                  <Typography variant="subtitle2" gutterBottom sx={{ mb: 1.5 }}>
+                    选择 DNS 服务商
+                  </Typography>
+                  <Box>
+                    <ProviderSelector
+                      providers={providers}
+                      selectedProvider={selectedProviderType}
+                      onSelect={(provider) => setValue('provider', provider)}
+                    />
+                  </Box>
                 </Box>
               )}
 
