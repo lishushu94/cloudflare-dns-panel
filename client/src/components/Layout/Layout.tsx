@@ -9,7 +9,8 @@ import {
   useTheme,
   useMediaQuery,
   Tabs,
-  Tab
+  Tab,
+  alpha
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -65,8 +66,7 @@ export default function Layout() {
           bgcolor: 'rgba(255, 255, 255, 0.9)',
           backdropFilter: 'blur(8px)',
           color: 'text.primary',
-          borderBottom: '1px solid',
-          borderColor: 'divider',
+          borderBottom: 'none',
           boxShadow: 'none',
           height: appBarHeight
         }}
@@ -86,14 +86,9 @@ export default function Layout() {
           <Box sx={{ flexGrow: 1, display: { xs: 'none', sm: 'flex' } }}>
             <Tabs 
               value={currentTab} 
-              textColor="primary"
-              indicatorColor="primary"
               sx={{ 
                 minHeight: appBarHeight,
-                '& .MuiTabs-indicator': { 
-                  height: 3,
-                  borderRadius: '3px 3px 0 0',
-                } 
+                '& .MuiTabs-indicator': { display: 'none' } 
               }}
             >
               {menuItems.map((item) => (
@@ -107,21 +102,22 @@ export default function Layout() {
                   }
                   value={item.path}
                   onClick={() => navigate(item.path)}
+                  disableRipple
                   sx={{ 
-                    minHeight: appBarHeight, 
-                    fontWeight: 600,
+                    minHeight: appBarHeight,
+                    px: 2,
+                    fontWeight: 500,
                     textTransform: 'none',
                     fontSize: '0.95rem',
-                    opacity: 0.7,
-                    transition: 'all 0.2s',
+                    color: 'text.secondary',
+                    transition: 'color 0.2s',
                     '&:hover': {
-                      opacity: 1,
-                      bgcolor: 'rgba(0,0,0,0.02)'
+                      color: 'text.primary',
                     },
                     '&.Mui-selected': {
-                      opacity: 1,
                       color: 'primary.main',
-                      fontWeight: 700
+                      fontWeight: 700,
+                      bgcolor: 'transparent'
                     }
                   }}
                 />

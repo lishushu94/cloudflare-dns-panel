@@ -1,4 +1,4 @@
-import { Box, Tabs, Tab, Skeleton } from '@mui/material';
+import { Box, Tabs, Tab, Skeleton, alpha } from '@mui/material';
 import {
   Apps as AllIcon,
   AccountCircle as AccountIcon,
@@ -37,7 +37,7 @@ export default function ProviderAccountTabs() {
   };
 
   return (
-    <Box sx={{ width: '100%', bgcolor: 'background.paper' }}>
+    <Box sx={{ width: '100%', bgcolor: 'background.paper', pt: 1 }}>
       <Tabs
         value={selectedCredentialId || 'all'}
         onChange={handleChange}
@@ -46,12 +46,26 @@ export default function ProviderAccountTabs() {
         allowScrollButtonsMobile
         aria-label="account tabs"
         sx={{
-          minHeight: 48,
+          minHeight: 56,
           px: 2,
+          '& .MuiTabs-indicator': { display: 'none' }, // 移除默认下划线
           '& .MuiTab-root': {
             minHeight: 48,
             textTransform: 'none',
             fontWeight: 600,
+            fontSize: '0.95rem', // 增大字体
+            mr: 1,
+            borderRadius: '12px', // 圆角
+            transition: 'all 0.2s',
+            color: 'text.secondary',
+            '&.Mui-selected': {
+              color: 'primary.main',
+              bgcolor: (theme) => alpha(theme.palette.primary.main, 0.1), // 选中时的背景色
+              fontWeight: 700,
+            },
+            '&:hover': {
+              bgcolor: (theme) => alpha(theme.palette.text.primary, 0.04),
+            }
           },
         }}
       >

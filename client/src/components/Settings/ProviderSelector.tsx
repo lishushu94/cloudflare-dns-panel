@@ -75,7 +75,25 @@ export default function ProviderSelector({ providers, selectedProvider, onSelect
   const theme = useTheme();
 
   return (
-    <Box sx={{ maxHeight: '60vh', overflowY: 'auto', p: 0.5 }}>
+    <Box sx={{ 
+      maxHeight: '60vh', 
+      overflowY: 'auto', 
+      p: 0.5,
+      // 自定义滚动条样式
+      '&::-webkit-scrollbar': {
+        width: '6px',
+      },
+      '&::-webkit-scrollbar-track': {
+        background: 'transparent',
+      },
+      '&::-webkit-scrollbar-thumb': {
+        background: (theme) => alpha(theme.palette.text.secondary, 0.15),
+        borderRadius: '3px',
+      },
+      '&::-webkit-scrollbar-thumb:hover': {
+        background: (theme) => alpha(theme.palette.text.secondary, 0.3),
+      },
+    }}>
       <Grid container spacing={1.5}>
         {providers.map((provider) => {
           const providerType = provider.type;
@@ -83,13 +101,13 @@ export default function ProviderSelector({ providers, selectedProvider, onSelect
           const brandColor = PROVIDER_COLORS[providerType] || theme.palette.primary.main;
 
           return (
-            <Grid item xs={6} sm={4} md={2.4} key={provider.type || provider.name}>
+            <Grid item xs={4} sm={3} md={2} key={provider.type || provider.name}>
               <Card
                 variant="outlined"
                 sx={{
                   cursor: 'pointer',
                   height: '100%',
-                  borderRadius: '12px',
+                  borderRadius: '10px',
                   borderColor: isSelected ? brandColor : undefined,
                   bgcolor: isSelected ? alpha(brandColor, 0.04) : undefined,
                   borderWidth: isSelected ? 2 : 1,
@@ -110,23 +128,23 @@ export default function ProviderSelector({ providers, selectedProvider, onSelect
                   display: 'flex', 
                   flexDirection: 'column', 
                   alignItems: 'center', 
-                  p: '16px !important',
-                  gap: 1.5
+                  p: '10px !important',
+                  gap: 1
                 }}>
                   <Box sx={{
-                    p: 1,
+                    p: 0.5,
                     borderRadius: '50%',
                     bgcolor: alpha(brandColor, 0.1),
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    width: 40,
-                    height: 40,
+                    width: 32,
+                    height: 32,
                     transition: 'all 0.2s'
                   }}>
                     {getProviderIcon(provider.type, 'large')}
                   </Box>
-                  <Typography variant="body2" fontWeight="600" align="center" noWrap sx={{ width: '100%', fontSize: '0.85rem' }}>
+                  <Typography variant="body2" fontWeight="600" align="center" noWrap sx={{ width: '100%', fontSize: '0.75rem' }}>
                     {provider.name}
                   </Typography>
                   {/* Radio 按钮对于这种卡片选择模式可能有点多余，这里通过边框和背景色已经能很好区分选中状态了，如果需要可以简化或移除 */}

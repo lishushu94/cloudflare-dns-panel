@@ -111,82 +111,76 @@ export default function Sidebar({ onClose }: SidebarProps) {
     .filter((p): p is NonNullable<typeof p> => p !== undefined);
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', color: 'white' }}>
-      {/* 品牌 Logo 区域 */}
-      <Box sx={{ 
-        px: 3.5,
-        py: 4.5,
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: 2,
-        color: 'white',
-      }}>
-        <Avatar 
-          sx={{ 
-            bgcolor: theme.palette.primary.main, // 使用 Primary Main
-            width: 48,
-            height: 48,
-            boxShadow: `0 0 20px ${alpha(theme.palette.primary.main, 0.4)}`
-          }}
-          variant="rounded" // 改为圆角矩形
-        >
-          <CloudIcon fontSize="medium" />
-        </Avatar>
-        <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <Typography variant="h6" fontWeight="800" sx={{ lineHeight: 1.1, letterSpacing: 0.5, color: 'white', fontSize: '1.2rem' }}>
-            CF Panel
-          </Typography>
-          <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', mt: 0.5, fontSize: '0.8rem', fontWeight: 500 }}>
-            DNS 管理系统
-          </Typography>
-        </Box>
-      </Box>
-
-      <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', mx: 3.5, mb: 2.5 }} />
-
-      <Box sx={{ px: 2.5, mb: 1.5 }}>
-        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase' }}>
-          DNS 提供商
-        </Typography>
-      </Box>
-
-      <List component="nav" sx={{ 
-        px: 2, 
-        flexGrow: 1, 
-        overflowY: 'auto',
-        '&::-webkit-scrollbar': { width: '4px' },
-        '&::-webkit-scrollbar-track': { background: 'transparent' },
-        '&::-webkit-scrollbar-thumb': { background: 'rgba(255, 255, 255, 0.1)', borderRadius: '4px' },
-        '&::-webkit-scrollbar-thumb:hover': { background: 'rgba(255, 255, 255, 0.2)' },
-      }}>
-        {sortedProviders.map((provider) => {
-          const config = PROVIDER_CONFIG[provider.type];
-          const count = getCredentialCountByProvider(provider.type);
-          const isSelected = selectedProvider === provider.type;
-          const hasAccounts = count > 0;
-
-          return (
-            <Box key={provider.type} sx={{ mb: 0.8 }}>
-              <ListItemButton
-                onClick={() => hasAccounts ? handleSelectProvider(provider.type) : undefined}
-                sx={{
-                  borderRadius: '12px',
-                  py: 1.2,
-                  px: 2,
-                  bgcolor: isSelected ? alpha(config.color, 0.12) : 'transparent',
-                  border: '1px solid',
-                  borderColor: isSelected ? alpha(config.color, 0.3) : 'transparent',
-                  color: isSelected ? 'white' : 'rgba(255,255,255,0.75)',
-                  transition: 'all 0.2s ease',
-                  '&:hover': {
-                    bgcolor: isSelected ? alpha(config.color, 0.18) : 'rgba(255,255,255,0.04)',
-                    color: 'white',
-                    transform: 'translateX(4px)'
-                  },
-                  opacity: hasAccounts ? 1 : 0.5,
-                  cursor: hasAccounts ? 'pointer' : 'default',
-                }}
-              >
+        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', color: 'white' }}>
+                            {/* 品牌 Logo 区域 */}
+                            <Box sx={{ 
+                              px: 3.5,
+                              pt: 3,
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: 2,
+                              color: 'white',
+                            }}>
+                              <Avatar 
+                                sx={{ 
+                                  bgcolor: theme.palette.primary.main,
+                                  width: 48,
+                                  height: 48,
+                                  boxShadow: `0 0 20px ${alpha(theme.palette.primary.main, 0.4)}`
+                                }}
+                                variant="rounded"
+                              >
+                                <CloudIcon fontSize="medium" />
+                              </Avatar>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                                <Typography variant="h6" fontWeight="800" sx={{ lineHeight: 1.1, letterSpacing: 0.5, color: 'white', fontSize: '1.2rem' }}>
+                                  CF Panel
+                                </Typography>
+                                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', mt: 0.5, fontSize: '0.8rem', fontWeight: 500 }}>
+                                  DNS 管理系统
+                                </Typography>
+                              </Box>
+                            </Box>
+                      
+                            <Divider sx={{ borderColor: 'rgba(255,255,255,0.08)', mx: 3.5, mt: 2.5, mb: 1 }} />                
+                      <List component="nav" sx={{ 
+                        px: 2, 
+                        flexGrow: 1, 
+                        overflowY: 'auto',
+                        '&::-webkit-scrollbar': { width: '4px' },
+                        '&::-webkit-scrollbar-track': { background: 'transparent' },
+                        '&::-webkit-scrollbar-thumb': { background: 'rgba(255, 255, 255, 0.1)', borderRadius: '4px' },
+                        '&::-webkit-scrollbar-thumb:hover': { background: 'rgba(255, 255, 255, 0.2)' },
+                      }}>
+                        {sortedProviders.map((provider) => {
+                          const config = PROVIDER_CONFIG[provider.type];
+                          const count = getCredentialCountByProvider(provider.type);
+                          const isSelected = selectedProvider === provider.type;
+                          const hasAccounts = count > 0;
+                
+                          return (
+                            <Box key={provider.type} sx={{ mb: 0.8 }}>
+                              <ListItemButton
+                                onClick={() => hasAccounts ? handleSelectProvider(provider.type) : undefined}
+                                sx={{
+                                  borderRadius: '12px',
+                                  py: 1.2,
+                                  px: 2,
+                                  bgcolor: isSelected ? alpha(config.color, 0.12) : 'transparent',
+                                  border: '1px solid',
+                                  borderColor: isSelected ? alpha(config.color, 0.3) : 'rgba(255,255,255,0.06)',
+                                  color: isSelected ? 'white' : 'rgba(255,255,255,0.75)',
+                                  transition: 'all 0.2s ease',
+                                  '&:hover': {
+                                    bgcolor: isSelected ? alpha(config.color, 0.18) : 'rgba(255,255,255,0.04)',
+                                    borderColor: isSelected ? config.color : 'rgba(255,255,255,0.2)',
+                                    color: 'white',
+                                    transform: 'translateX(4px)'
+                                  },
+                                  opacity: hasAccounts ? 1 : 0.5,
+                                  cursor: hasAccounts ? 'pointer' : 'default',
+                                }}
+                              >
                 <Box
                   sx={{
                     width: 32,
