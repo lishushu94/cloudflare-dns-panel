@@ -192,6 +192,7 @@ export default function DomainDetail() {
             records={records}
             lines={lines}
             minTTL={minTTL}
+            stickyBodyBgColor="#ffffff"
             onUpdate={(recordId, params) => updateMutation.mutate({ recordId, params })}
             onDelete={(recordId) => {
               if (window.confirm('确定要删除这条 DNS 记录吗？')) {

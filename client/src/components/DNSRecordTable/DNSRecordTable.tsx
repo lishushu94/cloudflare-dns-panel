@@ -38,6 +38,8 @@ interface DNSRecordTableProps {
   onStatusChange?: (recordId: string, enabled: boolean) => void;
   lines?: DnsLine[];
   minTTL?: number;
+  /** 固定操作列的数据行背景色，默认 #F1F5F9 */
+  stickyBodyBgColor?: string;
 }
 
 /**
@@ -51,12 +53,14 @@ export default function DNSRecordTable({
   onStatusChange,
   lines = [],
   minTTL,
+  stickyBodyBgColor,
 }: DNSRecordTableProps) {
   const { selectedProvider, currentCapabilities } = useProvider();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<DNSRecord>>({});
   const [hasOverflow, setHasOverflow] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const bodyBgColor = stickyBodyBgColor ?? '#F1F5F9';
 
   // 检测是否有内容被遮挡
   const checkOverflow = useCallback(() => {
@@ -106,11 +110,11 @@ export default function DNSRecordTable({
     zIndex: 2,
   };
 
-  // 固定操作列样式 - 数据行 (背景色 #F1F5F9 来自 theme background.default，与 DnsManagement 容器一致)
+  // 固定操作列样式 - 数据行 (背景色可通过 stickyBodyBgColor prop 自定义)
   const stickyBodyCellSx = {
     position: 'sticky',
     right: 0,
-    bgcolor: '#F1F5F9',
+    bgcolor: bodyBgColor,
     ...(hasOverflow && {
       boxShadow: '-4px 0 8px -4px rgba(0,0,0,0.15)',
     }),
@@ -227,11 +231,11 @@ export default function DNSRecordTable({
             <TableCell sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}>内容</TableCell>
             <TableCell>TTL</TableCell>
             {showProxied && <TableCell align="center">代理状态</TableCell>}
+            {showLine && <TableCell>线路</TableCell>}
+            {showStatus && <TableCell align="center">状态</TableCell>}
+            {showRemark && <TableCell>备注</TableCell>}
             <TableCell>优先级</TableCell>
             {showWeight && <TableCell>权重</TableCell>}
-            {showLine && <TableCell>线路</TableCell>}
-            {showRemark && <TableCell>备注</TableCell>}
-            {showStatus && <TableCell align="center">状态</TableCell>}
             <TableCell align="right" sx={stickyHeaderCellSx}>操作</TableCell>
           </TableRow>
         </TableHead>
@@ -321,29 +325,6 @@ export default function DNSRecordTable({
                       />
                      </TableCell>
                    )}
-                   <TableCell>
-                     {(editingType === 'MX' || editingType === 'SRV') && (
-                       <TextField
-                         type="number"
-                         size="small"
-                         value={editForm.priority ?? ''}
-                         onChange={(e) => handleChange('priority', e.target.value === '' ? undefined : Number(e.target.value))}
-                         sx={{ maxWidth: 80, ...compactTextFieldSx }}
-                       />
-                     )}
-                   </TableCell>
-                   {showWeight && (
-                     <TableCell>
-                       <TextField
-                         type="number"
-                         size="small"
-                         value={editForm.weight ?? ''}
-                         onChange={(e) => handleChange('weight', e.target.value ? Number(e.target.value) : undefined)}
-                         sx={{ maxWidth: 80, ...compactTextFieldSx }}
-                         placeholder="1-100"
-                       />
-                     </TableCell>
-                   )}
                    {showLine && (
                      <TableCell>
                        <TextField
@@ -375,6 +356,7 @@ export default function DNSRecordTable({
                        </TextField>
                      </TableCell>
                    )}
+                   {showStatus && <TableCell />}
                    {showRemark && (
                      <TableCell>
                        <TextField
@@ -386,7 +368,29 @@ export default function DNSRecordTable({
                        />
                      </TableCell>
                    )}
-                   {showStatus && <TableCell />}
+                   <TableCell>
+                     {(editingType === 'MX' || editingType === 'SRV') && (
+                       <TextField
+                         type="number"
+                         size="small"
+                         value={editForm.priority ?? ''}
+                         onChange={(e) => handleChange('priority', e.target.value === '' ? undefined : Number(e.target.value))}
+                         sx={{ maxWidth: 80, ...compactTextFieldSx }}
+                       />
+                     )}
+                   </TableCell>
+                   {showWeight && (
+                     <TableCell>
+                       <TextField
+                         type="number"
+                         size="small"
+                         value={editForm.weight ?? ''}
+                         onChange={(e) => handleChange('weight', e.target.value ? Number(e.target.value) : undefined)}
+                         sx={{ maxWidth: 80, ...compactTextFieldSx }}
+                         placeholder="1-100"
+                       />
+                     </TableCell>
+                   )}
                    <TableCell align="right" sx={stickyBodyCellSx}>
                     <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
                       <IconButton size="small" onClick={() => handleSaveClick(record.id)} color="success">
@@ -439,18 +443,7 @@ export default function DNSRecordTable({
                     )}
                   </TableCell>
                 )}
-                <TableCell>
-                  {record.type === 'MX' || record.type === 'SRV' ? (record.priority ?? '-') : '-'}
-                </TableCell>
-                {showWeight && <TableCell>{record.weight ?? '-'}</TableCell>}
                 {showLine && <TableCell>{record.lineName || getLineName(record.line)}</TableCell>}
-                {showRemark && (
-                  <TableCell>
-                    <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 120 }}>
-                      {record.remark || '-'}
-                    </Typography>
-                  </TableCell>
-                )}
                 {showStatus && (
                   <TableCell align="center">
                     <Tooltip title={record.enabled !== false ? '点击禁用' : '点击启用'}>
@@ -464,6 +457,17 @@ export default function DNSRecordTable({
                     </Tooltip>
                   </TableCell>
                 )}
+                {showRemark && (
+                  <TableCell>
+                    <Typography variant="body2" color="text.secondary" noWrap sx={{ maxWidth: 120 }}>
+                      {record.remark || '-'}
+                    </Typography>
+                  </TableCell>
+                )}
+                <TableCell>
+                  {record.type === 'MX' || record.type === 'SRV' ? (record.priority ?? '-') : '-'}
+                </TableCell>
+                {showWeight && <TableCell>{record.weight ?? '-'}</TableCell>}
                 <TableCell align="right" sx={stickyBodyCellSx}>
                   <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
                     <Tooltip title="编辑记录">
