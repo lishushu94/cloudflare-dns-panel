@@ -28,7 +28,6 @@ import {
   Label as NamesiloIcon,
   PowerSettingsNew as PowerdnsIcon,
   RocketLaunch as SpaceshipIcon,
-  Add as AddIcon,
   CloudQueue as CloudIcon,
   Logout as LogoutIcon,
   Settings as SettingsIcon,
@@ -44,7 +43,7 @@ import { clearAuthData, getStoredUser } from '@/services/auth';
 const PROVIDER_CONFIG: Record<ProviderType, { icon: React.ReactNode; color: string; name: string }> = {
   cloudflare: { icon: <CloudflareIcon />, color: '#f38020', name: 'Cloudflare' },
   aliyun: { icon: <AliyunIcon />, color: '#ff6a00', name: '阿里云' },
-  dnspod: { icon: <DnspodIcon />, color: '#0052d9', name: 'DNSPod' },
+  dnspod: { icon: <DnspodIcon />, color: '#0052d9', name: '腾讯云' },
   huawei: { icon: <HuaweiIcon />, color: '#e60012', name: '华为云' },
   baidu: { icon: <BaiduIcon />, color: '#2932e1', name: '百度云' },
   west: { icon: <WestIcon />, color: '#1e88e5', name: '西部数码' },
@@ -175,13 +174,7 @@ export default function Sidebar({ onClose }: SidebarProps) {
                            selectProvider(firstActiveProvider);
                             
                       
-                         } else {
-                            
-                      
-                           selectProvider(null);
-                            
-                      
-                         }
+                         } 
                             
                       
                          

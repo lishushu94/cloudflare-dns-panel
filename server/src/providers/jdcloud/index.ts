@@ -46,7 +46,8 @@ interface JdcloudRecord {
   id: number;
   hostRecord: string;
   hostValue: string;
-  recordType: string;
+  recordType?: string;
+  type?: string;
   ttl: number;
   viewValue?: number[];
   weight?: number;
@@ -86,6 +87,18 @@ const JDCLOUD_DEFAULT_LINES: DnsLine[] = [
   { code: '5', name: '海外' },
 ];
 
+const toJdcloudRecordType = (type: string): string => {
+  if (type === 'REDIRECT_URL') return 'EXPLICIT_URL';
+  if (type === 'FORWARD_URL') return 'IMPLICIT_URL';
+  return type;
+};
+
+const fromJdcloudRecordType = (type: string): string => {
+  if (type === 'EXPLICIT_URL') return 'REDIRECT_URL';
+  if (type === 'IMPLICIT_URL') return 'FORWARD_URL';
+  return type;
+};
+
 export const JDCLOUD_CAPABILITIES: ProviderCapabilities = {
   provider: ProviderType.JDCLOUD,
   name: '京东云 DNS',
@@ -101,7 +114,7 @@ export const JDCLOUD_CAPABILITIES: ProviderCapabilities = {
   paging: 'server',
   requiresDomainId: true,
 
-  recordTypes: ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'CAA', 'NS', 'EXPLICIT_URL', 'IMPLICIT_URL'],
+  recordTypes: ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'CAA', 'NS', 'REDIRECT_URL', 'FORWARD_URL'],
 
   authFields: [
     { name: 'accessKeyId', label: 'AccessKey ID', type: 'text', required: true, placeholder: '京东云 AccessKey ID' },
@@ -261,7 +274,11 @@ export class JdcloudProvider extends BaseProvider {
         pageSize: Math.min(params?.pageSize || 20, 99),
       };
       if (params?.keyword) query.hostRecord = params.keyword;
-      if (params?.type) query.recordType = params.type;
+      if (params?.type) {
+        const mappedType = toJdcloudRecordType(params.type);
+        query.recordType = mappedType;
+        query.type = mappedType;
+      }
       if (params?.value) query.hostValue = params.value;
 
       const resp = await this.request<JdcloudRecordsResponse>('GET', `/v2/regions/${this.region}/domain/${zoneId}/ResourceRecord`, query);
@@ -269,12 +286,13 @@ export class JdcloudProvider extends BaseProvider {
       const records: DnsRecord[] = (resp.result?.dataList || []).map(r => {
         // viewValue 数组的最后一个值作为线路标识
         const lineCode = r.viewValue && r.viewValue.length > 0 ? String(r.viewValue[r.viewValue.length - 1]) : 'default';
+        const recordTypeRaw = (r as any).recordType ?? (r as any).type;
         return this.normalizeRecord({
           id: String(r.id),
           zoneId: zoneId,
           zoneName: zone.name,
           name: r.hostRecord || '@',
-          type: r.recordType,
+          type: fromJdcloudRecordType(String(recordTypeRaw || '')),
           value: r.hostValue,
           ttl: r.ttl,
           line: lineCode,
@@ -303,10 +321,12 @@ export class JdcloudProvider extends BaseProvider {
 
   async createRecord(zoneId: string, params: CreateRecordParams): Promise<DnsRecord> {
     try {
+      const mappedType = toJdcloudRecordType(params.type);
       const body: Record<string, any> = {
         hostRecord: params.name === '@' ? '@' : params.name,
         hostValue: params.value,
-        recordType: params.type,
+        recordType: mappedType,
+        type: mappedType,
         ttl: params.ttl || 600,
         viewValue: params.line && params.line !== 'default' ? [parseInt(params.line, 10)] : [-1],
       };
@@ -326,10 +346,12 @@ export class JdcloudProvider extends BaseProvider {
 
   async updateRecord(zoneId: string, recordId: string, params: UpdateRecordParams): Promise<DnsRecord> {
     try {
+      const mappedType = toJdcloudRecordType(params.type);
       const body: Record<string, any> = {
         hostRecord: params.name === '@' ? '@' : params.name,
         hostValue: params.value,
-        recordType: params.type,
+        recordType: mappedType,
+        type: mappedType,
         ttl: params.ttl || 600,
         viewValue: params.line && params.line !== 'default' ? [parseInt(params.line, 10)] : [-1],
       };

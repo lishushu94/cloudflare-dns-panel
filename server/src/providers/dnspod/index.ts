@@ -25,6 +25,96 @@ import {
 import { buildTc3Headers, Tc3Credentials } from './auth';
 import { defaultLines, fromDnspodLine, toDnspodLine } from './lines';
 
+function toDnspodRecordType(type: string): string {
+  const t = String(type || '').trim();
+  if (t === 'REDIRECT_URL') return '显性URL';
+  if (t === 'FORWARD_URL') return '隐性URL';
+  return t;
+}
+
+function parseDnspodSrvValue(raw: string): { priority?: number; weight?: number; port?: number; target?: string } {
+  const tokens = String(raw || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const toNum = (v: string | undefined): number | undefined => {
+    if (v === undefined) return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+
+  const n0 = toNum(tokens[0]);
+  const n1 = toNum(tokens[1]);
+  const n2 = toNum(tokens[2]);
+
+  if (tokens.length >= 4 && n0 !== undefined && n1 !== undefined && n2 !== undefined) {
+    return { priority: n0, weight: n1, port: n2, target: tokens.slice(3).join(' ') };
+  }
+
+  if (tokens.length >= 3 && n0 !== undefined && n1 !== undefined) {
+    const target = tokens.slice(2).join(' ');
+    if (toNum(target) !== undefined) return {};
+    return { weight: n0, port: n1, target };
+  }
+
+  if (tokens.length >= 2 && n0 !== undefined) {
+    const target = tokens.slice(1).join(' ');
+    if (toNum(target) !== undefined) return {};
+    return { port: n0, target };
+  }
+
+  return {};
+}
+
+function fromDnspodRecordType(type?: string): string | undefined {
+  const t = String(type || '').trim();
+  if (!t) return undefined;
+  if (t === '显性URL') return 'REDIRECT_URL';
+  if (t === '隐性URL') return 'FORWARD_URL';
+  return t;
+}
+
+function fromDnspodLineId(lineId?: string): string | undefined {
+  const id = String(lineId || '').trim();
+  if (!id) return undefined;
+
+  const convert: Record<string, string> = {
+    '0': 'default',
+    '10=0': 'telecom',
+    '10=1': 'unicom',
+    '10=3': 'mobile',
+    '10=2': 'edu',
+    '3=0': 'oversea',
+    '10=22': 'btvn',
+    '80=0': 'search',
+    '7=0': 'internal',
+  };
+
+  return convert[id] || id;
+}
+
+function toDnspodLineId(line?: string): string | undefined {
+  const input = String(line || '').trim();
+  if (!input) return undefined;
+
+  const l = fromDnspodLine(input) || input;
+
+  const convert: Record<string, string> = {
+    default: '0',
+    telecom: '10=0',
+    unicom: '10=1',
+    mobile: '10=3',
+    edu: '10=2',
+    oversea: '3=0',
+    btvn: '10=22',
+    search: '80=0',
+    internal: '7=0',
+  };
+
+  return convert[l] || l;
+}
+
 // ========== API 响应类型 ==========
 
 type TcResponse<T> = {
@@ -56,6 +146,7 @@ type DescribeRecordListResponse = TcResponse<{
     Weight?: number;
     Status?: 'ENABLE' | 'DISABLE';
     Line?: string;
+    LineId?: string;
     Remark?: string;
     UpdatedOn?: string;
   }>;
@@ -64,15 +155,22 @@ type DescribeRecordListResponse = TcResponse<{
 
 type DescribeRecordResponse = TcResponse<{
   RecordInfo?: {
-    RecordId: number;
-    Name: string;
-    Type: string;
-    Value: string;
-    TTL: number;
+    RecordId?: number;
+    Name?: string;
+    Type?: string;
+    Line?: string;
+    LineId?: string;
+    Status?: 'ENABLE' | 'DISABLE';
+    Id?: number;
+    SubDomain?: string;
+    RecordType?: string;
+    RecordLine?: string;
+    RecordLineId?: string;
+    Enabled?: number;
+    Value?: string;
+    TTL?: number;
     MX?: number;
     Weight?: number;
-    Status?: 'ENABLE' | 'DISABLE';
-    Line?: string;
     Remark?: string;
     UpdatedOn?: string;
   };
@@ -82,9 +180,18 @@ type CreateRecordResponse = TcResponse<{ RecordId?: number }>;
 type CommonOkResponse = TcResponse<Record<string, unknown>>;
 
 type DescribeRecordLineCategoryListResponse = TcResponse<{
-  LineCategoryList?: Array<{
-    Name: string;
-    LineList?: Array<{ Name: string }>;
+  LineList?: Array<{
+    LineId: string;
+    LineName: string;
+    Useful?: boolean;
+    SubGroup?: Array<{ LineId: string; LineName: string; Useful?: boolean }>;
+  }>;
+}>;
+
+type DescribeDomainPurviewResponse = TcResponse<{
+  PurviewList?: Array<{
+    Name?: string;
+    Value?: string;
   }>;
 }>;
 
@@ -92,7 +199,7 @@ type DescribeRecordLineCategoryListResponse = TcResponse<{
 
 export const DNSPOD_CAPABILITIES: ProviderCapabilities = {
   provider: ProviderType.DNSPOD,
-  name: 'DNSPod (腾讯云)',
+  name: '腾讯云',
 
   supportsWeight: true,
   supportsLine: true,
@@ -127,6 +234,7 @@ export class DnspodProvider extends BaseProvider {
   private readonly service = 'dnspod';
   private readonly version = '2021-03-23';
   private readonly creds: Tc3Credentials;
+  private readonly lineNameMapByZone = new Map<string, Map<string, string>>();
 
   constructor(credentials: ProviderCredentials) {
     super(credentials, DNSPOD_CAPABILITIES);
@@ -230,6 +338,94 @@ export class DnspodProvider extends BaseProvider {
     return enabled ? 'ENABLE' : 'DISABLE';
   }
 
+  private fromEnabled(enabled?: number): '0' | '1' | undefined {
+    if (typeof enabled !== 'number') return undefined;
+    return enabled === 1 ? '1' : '0';
+  }
+
+  private async buildLineData(zone: Zone): Promise<{ lines: DnsLine[]; lineNameMap: Map<string, string> }> {
+    const resp = await this.request<DescribeRecordLineCategoryListResponse>('DescribeRecordLineCategoryList', {
+      Domain: zone.name,
+      DomainId: Number(zone.id),
+    });
+
+    const defaults = defaultLines();
+    const byCode = new Map<string, DnsLine>();
+    const lineNameMap = new Map<string, string>();
+
+    const baseGroup = '基础';
+    const addLine = (dnspodLineId?: string, dnspodLineName?: string, parentCode?: string) => {
+      const id = String(dnspodLineId || '').trim();
+      const n = String(dnspodLineName || '').trim();
+      if (!id && !n) return;
+
+      const code = fromDnspodLineId(id) || fromDnspodLine(n) || id || n;
+      if (!code) return;
+
+      const base = defaults.find(d => d.code === code);
+      const displayName = base?.name || n || code;
+
+      if (!byCode.has(code)) {
+        byCode.set(code, {
+          code,
+          name: displayName,
+          parentCode,
+        });
+      }
+
+      const apiLineName = n || toDnspodLine(code) || displayName;
+      if (apiLineName && !lineNameMap.has(code)) {
+        lineNameMap.set(code, apiLineName);
+      }
+    };
+
+    for (const item of resp.Response?.LineList || []) {
+      const topName = item?.LineName ? String(item.LineName) : '';
+      const topId = item?.LineId ? String(item.LineId) : '';
+      if (!topName && !topId) continue;
+
+      if (item?.Useful !== false) {
+        addLine(topId, topName, baseGroup);
+      }
+
+      for (const sub of item?.SubGroup || []) {
+        const subName = sub?.LineName ? String(sub.LineName) : '';
+        const subId = sub?.LineId ? String(sub.LineId) : '';
+        if (!subName && !subId) continue;
+        if ((sub as any)?.Useful === false) continue;
+        addLine(subId, subName, topName);
+      }
+    }
+
+    for (const row of defaults) {
+      if (!lineNameMap.has(row.code)) {
+        const v = toDnspodLine(row.code) || row.name || row.code;
+        lineNameMap.set(row.code, v);
+      }
+    }
+
+    const lines = Array.from(byCode.values());
+    return { lines: lines.length > 0 ? lines : defaults, lineNameMap };
+  }
+
+  private async resolveRecordLine(zone: Zone, line?: string): Promise<{ recordLine: string; recordLineId: string }> {
+    const input = String(line || '').trim();
+    if (!input) return { recordLine: '默认', recordLineId: '0' };
+
+    const code = fromDnspodLineId(input) || fromDnspodLine(input) || input;
+
+    let map = this.lineNameMapByZone.get(zone.id);
+    if (!map) {
+      const built = await this.buildLineData(zone);
+      this.lineNameMapByZone.set(zone.id, built.lineNameMap);
+      map = built.lineNameMap;
+    }
+
+    const recordLineId = toDnspodLineId(code) || '0';
+    const recordLine = map.get(code) || toDnspodLine(code) || '默认';
+    return { recordLine, recordLineId };
+  }
+
   // ========== IDnsProvider 实现 ==========
 
   async checkAuth(): Promise<boolean> {
@@ -300,39 +496,59 @@ export class DnspodProvider extends BaseProvider {
       const ps = Math.max(1, params?.pageSize || 20);
       const offset = (p - 1) * ps;
 
-      const hasFilter = params?.keyword || params?.subDomain || params?.type || params?.value || params?.line || params?.status;
-      const action = hasFilter ? 'DescribeRecordFilterList' : 'DescribeRecordList';
+      const needFilterList = Boolean(params?.value || params?.status);
+      const action = needFilterList ? 'DescribeRecordFilterList' : 'DescribeRecordList';
 
-      const payload: Record<string, unknown> = { DomainId: domainId, Offset: offset, Limit: ps };
+      const payload: Record<string, unknown> = {
+        Domain: zone.name,
+        DomainId: domainId,
+        Offset: offset,
+        Limit: ps,
+      };
 
-      if (hasFilter) {
+      const resolvedLine = params?.line ? await this.resolveRecordLine(zone, params.line) : undefined;
+
+      if (needFilterList) {
         if (params?.keyword) payload.Keyword = params.keyword;
         if (params?.subDomain) payload.SubDomain = this.toRR(params.subDomain, zone.name);
-        if (params?.type) payload.RecordType = params.type;
-        if (params?.value) payload.Value = params.value;
-        if (params?.line) payload.RecordLine = toDnspodLine(params.line);
-        if (params?.status) payload.RecordStatus = params.status === '1' ? 'ENABLE' : 'DISABLE';
+        if (params?.type) payload.RecordType = [toDnspodRecordType(params.type)];
+        if (params?.value) payload.RecordValue = params.value;
+        if (resolvedLine) payload.RecordLine = [resolvedLine.recordLine];
+        if (params?.status) payload.RecordStatus = [params.status === '1' ? 'ENABLE' : 'DISABLE'];
+      } else {
+        if (params?.keyword) payload.Keyword = params.keyword;
+        if (params?.subDomain) payload.Subdomain = this.toRR(params.subDomain, zone.name);
+        if (params?.type) payload.RecordType = toDnspodRecordType(params.type);
+        if (resolvedLine) {
+          payload.RecordLine = resolvedLine.recordLine;
+          payload.RecordLineId = resolvedLine.recordLineId;
+        }
       }
 
       const resp = await this.request<DescribeRecordListResponse>(action, payload);
 
       const records: DnsRecord[] = (resp.Response?.RecordList || []).map(r =>
-        this.normalizeRecord({
+        (() => {
+          const type = fromDnspodRecordType(r.Type);
+          const srv = type === 'SRV' ? parseDnspodSrvValue(r.Value) : undefined;
+
+          return this.normalizeRecord({
           id: String(r.RecordId),
           zoneId: zone.id,
           zoneName: zone.name,
           name: this.toFqdn(r.Name, zone.name),
-          type: r.Type,
+          type,
           value: r.Value,
           ttl: r.TTL,
-          line: fromDnspodLine(r.Line),
-          weight: r.Weight,
-          priority: r.MX,
+          line: fromDnspodLineId(r.LineId) || fromDnspodLine(r.Line),
+          weight: typeof srv?.weight === 'number' ? srv.weight : r.Weight,
+          priority: typeof srv?.priority === 'number' ? srv.priority : type === 'MX' ? r.MX : undefined,
           status: this.fromStatus(r.Status),
           remark: r.Remark,
           updatedAt: r.UpdatedOn,
           meta: { raw: r },
-        })
+          });
+        })()
       );
 
       return { total: resp.Response?.RecordCountInfo?.TotalCount || records.length, records };
@@ -350,6 +566,7 @@ export class DnspodProvider extends BaseProvider {
       }
 
       const resp = await this.request<DescribeRecordResponse>('DescribeRecord', {
+        Domain: zone.name,
         DomainId: Number(zone.id),
         RecordId: rid,
       });
@@ -357,20 +574,42 @@ export class DnspodProvider extends BaseProvider {
       const info = resp.Response?.RecordInfo;
       if (!info) throw this.createError('NOT_FOUND', `记录不存在: ${recordId}`, { httpStatus: 404 });
 
+      const actualId = (info as any).RecordId ?? (info as any).Id;
+      if (actualId === undefined || actualId === null) {
+        throw this.createError('INVALID_RESPONSE', 'DNSPod 返回的 RecordInfo 缺少 Id/RecordId', {
+          httpStatus: 502,
+          meta: { recordId, recordInfo: info },
+        });
+      }
+
+      const rr = (info as any).Name ?? (info as any).SubDomain;
+      const rrStr = String(rr || '').trim() || '@';
+      const recordType = (info as any).Type ?? (info as any).RecordType;
+      const recordTypeStr = String(recordType || '').trim();
+
+      const recordLineIdRaw = (info as any).RecordLineId ?? (info as any).LineId;
+      const recordLineRaw = (info as any).RecordLine ?? (info as any).Line;
+      const line =
+        fromDnspodLineId(String(recordLineIdRaw || '').trim()) ||
+        fromDnspodLine(String(recordLineRaw || '').trim());
+
+      const normalizedType = fromDnspodRecordType(recordTypeStr);
+      const srv = normalizedType === 'SRV' ? parseDnspodSrvValue(String((info as any).Value || '')) : undefined;
+
       return this.normalizeRecord({
-        id: String(info.RecordId),
+        id: String(actualId),
         zoneId: zone.id,
         zoneName: zone.name,
-        name: this.toFqdn(info.Name, zone.name),
-        type: info.Type,
-        value: info.Value,
-        ttl: info.TTL,
-        line: fromDnspodLine(info.Line),
-        weight: info.Weight,
-        priority: info.MX,
-        status: this.fromStatus(info.Status),
-        remark: info.Remark,
-        updatedAt: info.UpdatedOn,
+        name: this.toFqdn(rrStr, zone.name),
+        type: normalizedType,
+        value: (info as any).Value,
+        ttl: (info as any).TTL,
+        line,
+        weight: typeof srv?.weight === 'number' ? srv.weight : (info as any).Weight,
+        priority: typeof srv?.priority === 'number' ? srv.priority : normalizedType === 'MX' ? (info as any).MX : undefined,
+        status: this.fromStatus((info as any).Status) || this.fromEnabled((info as any).Enabled),
+        remark: (info as any).Remark,
+        updatedAt: (info as any).UpdatedOn,
         meta: { raw: info },
       });
     } catch (err) {
@@ -383,17 +622,50 @@ export class DnspodProvider extends BaseProvider {
       const zone = await this.getZone(zoneId);
       const domainId = Number(zone.id);
 
+      const rawTtl = typeof params.ttl === 'number' ? params.ttl : undefined;
+      const ttl = rawTtl && rawTtl > 1 ? rawTtl : 600;
+
+      const resolvedLine = await this.resolveRecordLine(zone, params.line);
+
+      const recordType = toDnspodRecordType(params.type);
+      let value = params.value;
+      let srvWeight: number | undefined;
+      let srvPriority: number | undefined;
+
+      if (recordType === 'SRV') {
+        const parsed = parseDnspodSrvValue(params.value);
+        const port = parsed.port;
+        const target = parsed.target;
+
+        if (typeof port !== 'number' || !Number.isFinite(port) || !target) {
+          throw this.createError(
+            'INVALID_SRV_VALUE',
+            'SRV 记录值格式应为: 端口 主机名 或 优先级 权重 端口 主机名',
+            { httpStatus: 400, meta: { value: params.value } }
+          );
+        }
+
+        srvPriority = typeof params.priority === 'number' ? params.priority : parsed.priority;
+        srvWeight = typeof params.weight === 'number' ? params.weight : parsed.weight;
+
+        const finalPriority = typeof srvPriority === 'number' && Number.isFinite(srvPriority) ? srvPriority : 0;
+        const finalWeight = typeof srvWeight === 'number' && Number.isFinite(srvWeight) ? srvWeight : 0;
+        value = `${finalPriority} ${finalWeight} ${port} ${target}`;
+      }
+
       const payload: Record<string, unknown> = {
+        Domain: zone.name,
         DomainId: domainId,
         SubDomain: this.toRR(params.name, zone.name),
-        RecordType: params.type,
-        RecordLine: toDnspodLine(params.line) || '默认',
-        Value: params.value,
-        TTL: params.ttl ?? 600,
+        RecordType: recordType,
+        RecordLine: resolvedLine.recordLine,
+        RecordLineId: resolvedLine.recordLineId,
+        Value: value,
+        TTL: ttl,
       };
 
-      if (typeof params.priority === 'number') payload.MX = params.priority;
-      if (typeof params.weight === 'number') payload.Weight = params.weight;
+      if (recordType === 'MX' && typeof params.priority === 'number') payload.MX = params.priority;
+      if (recordType !== 'SRV' && typeof params.weight === 'number') payload.Weight = params.weight;
 
       const resp = await this.request<CreateRecordResponse>('CreateRecord', payload);
       const newId = resp.Response?.RecordId;
@@ -420,19 +692,55 @@ export class DnspodProvider extends BaseProvider {
       const zone = await this.getZone(zoneId);
       const domainId = Number(zone.id);
       const rid = Number(recordId);
+      if (!Number.isFinite(rid)) {
+        throw this.createError('INVALID_RECORD_ID', `RecordId 必须为数字: ${recordId}`, { httpStatus: 400 });
+      }
+
+      const rawTtl = typeof params.ttl === 'number' ? params.ttl : undefined;
+      const ttl = rawTtl && rawTtl > 1 ? rawTtl : 600;
+
+      const resolvedLine = await this.resolveRecordLine(zone, params.line);
+
+      const recordType = toDnspodRecordType(params.type);
+      let value = params.value;
+      let srvWeight: number | undefined;
+      let srvPriority: number | undefined;
+
+      if (recordType === 'SRV') {
+        const parsed = parseDnspodSrvValue(params.value);
+        const port = parsed.port;
+        const target = parsed.target;
+
+        if (typeof port !== 'number' || !Number.isFinite(port) || !target) {
+          throw this.createError(
+            'INVALID_SRV_VALUE',
+            'SRV 记录值格式应为: 端口 主机名 或 优先级 权重 端口 主机名',
+            { httpStatus: 400, meta: { value: params.value } }
+          );
+        }
+
+        srvPriority = typeof params.priority === 'number' ? params.priority : parsed.priority;
+        srvWeight = typeof params.weight === 'number' ? params.weight : parsed.weight;
+
+        const finalPriority = typeof srvPriority === 'number' && Number.isFinite(srvPriority) ? srvPriority : 0;
+        const finalWeight = typeof srvWeight === 'number' && Number.isFinite(srvWeight) ? srvWeight : 0;
+        value = `${finalPriority} ${finalWeight} ${port} ${target}`;
+      }
 
       const payload: Record<string, unknown> = {
+        Domain: zone.name,
         DomainId: domainId,
         RecordId: rid,
         SubDomain: this.toRR(params.name, zone.name),
-        RecordType: params.type,
-        RecordLine: toDnspodLine(params.line) || '默认',
-        Value: params.value,
-        TTL: params.ttl ?? 600,
+        RecordType: recordType,
+        RecordLine: resolvedLine.recordLine,
+        RecordLineId: resolvedLine.recordLineId,
+        Value: value,
+        TTL: ttl,
       };
 
-      if (typeof params.priority === 'number') payload.MX = params.priority;
-      if (typeof params.weight === 'number') payload.Weight = params.weight;
+      if (recordType === 'MX' && typeof params.priority === 'number') payload.MX = params.priority;
+      if (recordType !== 'SRV' && typeof params.weight === 'number') payload.Weight = params.weight;
 
       await this.request<CommonOkResponse>('ModifyRecord', payload);
 
@@ -454,6 +762,7 @@ export class DnspodProvider extends BaseProvider {
     try {
       const zone = await this.getZone(zoneId);
       await this.request<CommonOkResponse>('DeleteRecord', {
+        Domain: zone.name,
         DomainId: Number(zone.id),
         RecordId: Number(recordId),
       });
@@ -467,6 +776,7 @@ export class DnspodProvider extends BaseProvider {
     try {
       const zone = await this.getZone(zoneId);
       await this.request<CommonOkResponse>('ModifyRecordStatus', {
+        Domain: zone.name,
         DomainId: Number(zone.id),
         RecordId: Number(recordId),
         Status: this.toStatus(enabled),
@@ -482,33 +792,37 @@ export class DnspodProvider extends BaseProvider {
       if (!zoneId) return { lines: defaultLines() };
 
       const zone = await this.getZone(zoneId);
-      const resp = await this.request<DescribeRecordLineCategoryListResponse>('DescribeRecordLineCategoryList', {
-        DomainId: Number(zone.id),
-      });
-
-      const dnspodLines = new Set<string>();
-      for (const cat of resp.Response?.LineCategoryList || []) {
-        for (const line of cat.LineList || []) {
-          if (line?.Name) dnspodLines.add(line.Name);
-        }
-      }
-
-      if (dnspodLines.size === 0) return { lines: defaultLines() };
-
-      const defaults = defaultLines();
-      const lines: DnsLine[] = Array.from(dnspodLines).map(name => {
-        const generic = fromDnspodLine(name) || name;
-        return defaults.find(d => d.code === generic) || { code: generic, name };
-      });
-
-      return { lines };
+      const built = await this.buildLineData(zone);
+      this.lineNameMapByZone.set(zone.id, built.lineNameMap);
+      return { lines: built.lines };
     } catch (err) {
       throw this.wrapError(err);
     }
   }
 
   async getMinTTL(_zoneId?: string): Promise<number> {
-    return 60; // DNSPod 付费版支持更低 TTL
+    try {
+      if (!_zoneId) return 600;
+
+      const zone = await this.getZone(_zoneId);
+      const resp = await this.request<DescribeDomainPurviewResponse>('DescribeDomainPurview', {
+        Domain: zone.name,
+        DomainId: Number(zone.id),
+      });
+
+      for (const row of resp.Response?.PurviewList || []) {
+        const name = String(row?.Name || '').trim();
+        if (!name) continue;
+        if (name === '记录 TTL 最低' || name === 'Min TTL value') {
+          const v = Number(String(row?.Value || '').trim());
+          if (Number.isFinite(v) && v > 0) return v;
+        }
+      }
+
+      return 600;
+    } catch {
+      return 600;
+    }
   }
 
   async addZone(domain: string): Promise<Zone> {

@@ -205,7 +205,7 @@ export abstract class BaseProvider implements IDnsProvider {
       weight: typeof input.weight === 'number' ? input.weight : undefined,
       priority: typeof input.priority === 'number' ? input.priority : undefined,
       status: input.status,
-      remark: input.remark ? String(input.remark) : undefined,
+      remark: input.remark === undefined || input.remark === null ? undefined : String(input.remark),
       proxied: typeof input.proxied === 'boolean' ? input.proxied : undefined,
       updatedAt: input.updatedAt ? String(input.updatedAt) : undefined,
       meta: input.meta,

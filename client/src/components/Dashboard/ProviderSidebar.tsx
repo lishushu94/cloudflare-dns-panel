@@ -3,10 +3,8 @@ import {
   Card,
   CardContent,
   Typography,
-  Chip,
   Skeleton,
   alpha,
-  useTheme,
 } from '@mui/material';
 import {
   CloudQueue as CloudflareIcon,
@@ -28,7 +26,7 @@ import { ProviderType } from '@/types/dns';
 const PROVIDER_CONFIG: Record<ProviderType, { icon: React.ReactNode; color: string; name: string }> = {
   cloudflare: { icon: <CloudflareIcon />, color: '#f38020', name: 'Cloudflare' },
   aliyun: { icon: <AliyunIcon />, color: '#ff6a00', name: '阿里云 DNS' },
-  dnspod: { icon: <DnspodIcon />, color: '#0052d9', name: 'DNSPod' },
+  dnspod: { icon: <DnspodIcon />, color: '#0052d9', name: '腾讯云' },
   huawei: { icon: <HuaweiIcon />, color: '#e60012', name: '华为云 DNS' },
   baidu: { icon: <BaiduIcon />, color: '#2932e1', name: '百度云 DNS' },
   west: { icon: <WestIcon />, color: '#1e88e5', name: '西部数码' },
@@ -46,7 +44,6 @@ const PROVIDER_ORDER: ProviderType[] = [
 ];
 
 export default function ProviderSidebar() {
-  const theme = useTheme();
   const {
     providers,
     selectedProvider,

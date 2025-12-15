@@ -6,6 +6,8 @@
  */
 
 import https from 'https';
+import fs from 'fs';
+import path from 'path';
 import { BaseProvider, DnsProviderError } from '../base/BaseProvider';
 import {
   CreateRecordParams,
@@ -53,15 +55,56 @@ interface HuaweiRecordSetsResponse {
   metadata?: { total_count?: number };
 }
 
-// 华为云线路映射
-const HUAWEI_LINES: DnsLine[] = [
-  { code: 'default_view', name: '默认' },
-  { code: 'Dianxin', name: '电信' },
-  { code: 'Liantong', name: '联通' },
-  { code: 'Yidong', name: '移动' },
-  { code: 'Jiaoyuwang', name: '教育网' },
-  { code: 'Abroad', name: '海外' },
-];
+// 华为云线路数据文件路径
+const HUAWEI_LINES_FILE = path.join(__dirname, 'data', 'huawei_line.json');
+
+// 线路数据缓存
+let huaweiLinesCache: DnsLine[] | null = null;
+
+/**
+ * 从JSON文件加载华为云线路数据
+ */
+function loadHuaweiLines(): DnsLine[] {
+  if (huaweiLinesCache) {
+    return huaweiLinesCache;
+  }
+
+  try {
+    const fileContent = fs.readFileSync(HUAWEI_LINES_FILE, 'utf-8');
+    const jsonData: Record<string, { name: string; parent: string | null }> = JSON.parse(fileContent);
+
+    // 转换为 DnsLine[] 格式
+    const lines: DnsLine[] = [];
+    for (const [code, data] of Object.entries(jsonData)) {
+      lines.push({
+        code,
+        name: data.name,
+        parentCode: data.parent || undefined,
+      });
+    }
+
+    // 按代码排序，确保默认线路在前
+    lines.sort((a, b) => {
+      if (a.code === 'default_view') return -1;
+      if (b.code === 'default_view') return 1;
+      return a.code.localeCompare(b.code);
+    });
+
+    huaweiLinesCache = lines;
+    return lines;
+  } catch (error) {
+    // 如果文件读取失败，返回默认的6个基本线路作为降级方案
+    console.warn('Failed to load huawei_line.json, using fallback lines:', error);
+    return [
+      { code: 'default_view', name: '默认' },
+      { code: 'Dianxin', name: '电信' },
+      { code: 'Liantong', name: '联通' },
+      { code: 'Yidong', name: '移动' },
+      { code: 'Jiaoyuwang', name: '教育网' },
+      { code: 'Abroad', name: '海外' },
+    ];
+  }
+}
 
 export const HUAWEI_CAPABILITIES: ProviderCapabilities = {
   provider: ProviderType.HUAWEI,
@@ -242,7 +285,12 @@ export class HuaweiProvider extends BaseProvider {
       const query: Record<string, any> = { limit, offset };
       if (params?.type) query.type = params.type;
       if (params?.keyword) query.name = params.keyword;
-      if (params?.line) query.line = this.toLine(params.line);
+      if (params?.subDomain) {
+        const rr = params.subDomain === '@' ? zone.name : `${params.subDomain}.${zone.name}`;
+        query.name = this.ensureTrailingDot(rr);
+        query.search_mode = 'equal';
+      }
+      if (params?.line) query.line_id = this.toLine(params.line);
       if (params?.status) query.status = params.status === '1' ? 'ACTIVE' : 'DISABLE';
 
       const resp = await this.request<HuaweiRecordSetsResponse>('GET', `/v2.1/zones/${zoneId}/recordsets`, query);
@@ -418,7 +466,7 @@ export class HuaweiProvider extends BaseProvider {
     try {
       const actualId = recordId.includes('|') ? recordId.split('|')[0] : recordId;
       await this.request('PUT', `/v2.1/recordsets/${actualId}/statuses/set`, undefined, {
-        status: enabled ? 'ACTIVE' : 'DISABLE',
+        status: enabled ? 'ENABLE' : 'DISABLE',
       });
       return true;
     } catch (err) {
@@ -427,7 +475,8 @@ export class HuaweiProvider extends BaseProvider {
   }
 
   async getLines(_zoneId?: string): Promise<LineListResult> {
-    return { lines: HUAWEI_LINES };
+    const lines = loadHuaweiLines();
+    return { lines };
   }
 
   async getMinTTL(_zoneId?: string): Promise<number> {

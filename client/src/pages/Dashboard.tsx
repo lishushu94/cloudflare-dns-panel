@@ -1,5 +1,6 @@
 import { useState, Fragment, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Typography,
@@ -31,11 +32,11 @@ import {
   Error as ErrorIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon,
-  Business as BusinessIcon
+  Business as BusinessIcon,
+  OpenInNew as OpenInNewIcon
 } from '@mui/icons-material';
 import { getDomains, refreshDomains } from '@/services/domains';
 import { formatRelativeTime } from '@/utils/formatters';
-import { getStoredUser } from '@/services/auth';
 import { alpha } from '@mui/material/styles';
 import { Domain } from '@/types';
 import DnsManagement from '@/components/DnsManagement/DnsManagement';
@@ -44,8 +45,8 @@ import { useProvider } from '@/contexts/ProviderContext';
 
 export default function Dashboard() {
   const [searchTerm, setSearchTerm] = useState('');
-  const [expandedDomainId, setExpandedDomainId] = useState<string | null>(null);
-  const user = getStoredUser();
+  const [expandedDomainKey, setExpandedDomainKey] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const { selectedCredentialId, selectedProvider, getCredentialsByProvider } = useProvider();
 
@@ -89,7 +90,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     setSearchTerm('');
-    setExpandedDomainId(null);
+    setExpandedDomainKey(null);
   }, [selectedCredentialId, selectedProvider]);
 
   const handleRefresh = async () => {
@@ -108,19 +109,37 @@ export default function Dashboard() {
     domain.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const activeCount = domains.filter(d => d.status === 'active').length;
-
   const getStatusConfig = (status: string) => {
-    switch (status) {
-      case 'active':
-        return { label: '已激活', color: 'success' as const, icon: <ActiveIcon fontSize="small" /> };
-      case 'pending':
-        return { label: '待验证', color: 'warning' as const, icon: <PendingIcon fontSize="small" /> };
-      case 'moved':
-        return { label: '已迁出', color: 'error' as const, icon: <ErrorIcon fontSize="small" /> };
-      default:
-        return { label: status, color: 'default' as const, icon: null };
+    const raw = String(status || '').trim();
+    const s = raw.toLowerCase();
+
+    if (s === 'unknown' || s === 'unknow') {
+      return { label: '未知', color: 'default' as const, icon: null };
     }
+
+    if (s === 'active') {
+      return { label: '已激活', color: 'success' as const, icon: <ActiveIcon fontSize="small" /> };
+    }
+    if (s === 'pending') {
+      return { label: '待验证', color: 'warning' as const, icon: <PendingIcon fontSize="small" /> };
+    }
+    if (s === 'moved') {
+      return { label: '已迁出', color: 'error' as const, icon: <ErrorIcon fontSize="small" /> };
+    }
+    if (s === 'enable' || s === 'enabled' || s === 'enableing' || s === 'running' || s === 'normal') {
+      return { label: '启用', color: 'success' as const, icon: <ActiveIcon fontSize="small" /> };
+    }
+    if (s === 'disable' || s === 'disabled' || s === 'pause' || s === 'paused' || s === 'stop' || s === 'stopped') {
+      return { label: '禁用', color: 'default' as const, icon: null };
+    }
+    if (raw === 'ENABLE') {
+      return { label: '启用', color: 'success' as const, icon: <ActiveIcon fontSize="small" /> };
+    }
+    if (raw === 'DISABLE') {
+      return { label: '禁用', color: 'default' as const, icon: null };
+    }
+
+    return { label: raw || '-', color: 'default' as const, icon: null };
   };
 
   const showAccountColumn = selectedCredentialId === 'all' && currentProviderCredentials.length > 1;
@@ -213,14 +232,18 @@ export default function Dashboard() {
                   ) : (
                     filteredDomains.map((domain) => {
                       const status = getStatusConfig(domain.status);
-                      const isExpanded = expandedDomainId === domain.id;
+                      const rowKey = `${domain.id}-${domain.credentialId}`;
+                      const isExpanded = expandedDomainKey === rowKey;
+                      const detailPath = typeof domain.credentialId === 'number'
+                        ? `/domain/${domain.id}?credentialId=${domain.credentialId}`
+                        : `/domain/${domain.id}`;
 
                       return (
                         <Fragment key={`${domain.id}-${domain.credentialId}`}>
                           <TableRow
                             hover
                             sx={{ '& > *': { borderBottom: 'unset' }, cursor: 'pointer' }}
-                            onClick={() => setExpandedDomainId(isExpanded ? null : domain.id)}
+                            onClick={() => setExpandedDomainKey(isExpanded ? null : rowKey)}
                           >
                             <TableCell>
                               <IconButton
@@ -228,16 +251,27 @@ export default function Dashboard() {
                                 size="small"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setExpandedDomainId(isExpanded ? null : domain.id);
+                                  setExpandedDomainKey(isExpanded ? null : rowKey);
                                 }}
                               >
                                 {isExpanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
                               </IconButton>
                             </TableCell>
                             <TableCell>
-                              <Typography variant="body1" fontWeight="600" color="text.primary">
-                                {domain.name}
-                              </Typography>
+                              <Stack direction="row" alignItems="center" spacing={1}>
+                                <Typography variant="body1" fontWeight="600" color="text.primary">
+                                  {domain.name}
+                                </Typography>
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    navigate(detailPath);
+                                  }}
+                                >
+                                  <OpenInNewIcon fontSize="inherit" />
+                                </IconButton>
+                              </Stack>
                             </TableCell>
 
                             {showAccountColumn && (

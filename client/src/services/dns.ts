@@ -18,18 +18,36 @@ export const getDNSRecords = async (
 ): Promise<ApiResponse<{ records: DNSRecord[]; capabilities?: RecordsResponseCapabilities }>> => {
   const params = credentialId !== undefined ? { credentialId } : {};
 
-  const response = await api.get(`/dns-records/zones/${zoneId}/records`, {
-    params: {
-      ...params,
-      page: 1,
-      pageSize: 5000,
-    },
-  });
+  const pageSize = 500;
+  let page = 1;
+  let total = 0;
+  const rawRecords: any[] = [];
+  let firstResponse: any | undefined;
 
-  const rawRecords = (response as any)?.data?.records || [];
+  while (page <= 200) {
+    const response = await api.get(`/dns-records/zones/${zoneId}/records`, {
+      params: {
+        ...params,
+        page,
+        pageSize,
+      },
+    });
+
+    if (!firstResponse) firstResponse = response;
+
+    const batch = (response as any)?.data?.records || [];
+    total = (response as any)?.data?.total ?? total;
+    rawRecords.push(...batch);
+
+    if (batch.length === 0) break;
+    if (total > 0 && rawRecords.length >= total) break;
+    page += 1;
+  }
+
   const records: DNSRecord[] = rawRecords.map((r: any) => ({
     id: r.id,
     type: r.type,
+    zoneName: r.zoneName,
     name: r.name,
     content: r.value,
     ttl: r.ttl,
@@ -39,15 +57,22 @@ export const getDNSRecords = async (
     line: r.line,
     lineName: r.lineName,
     remark: r.remark,
-    enabled: r.enabled,
+    enabled:
+      typeof r.enabled === 'boolean'
+        ? r.enabled
+        : r.status === '1'
+          ? true
+          : r.status === '0'
+            ? false
+            : undefined,
   }));
 
-  const capabilities = (response as any)?.data?.capabilities;
+  const capabilities = (firstResponse as any)?.data?.capabilities;
 
   return {
-    ...(response as any),
+    ...(firstResponse as any),
     data: {
-      ...(response as any)?.data,
+      ...(firstResponse as any)?.data,
       records,
       capabilities,
     },
@@ -64,6 +89,15 @@ export const getDNSLines = async (
   const params = credentialId !== undefined ? { credentialId } : {};
   const response = await api.get(`/dns-records/zones/${zoneId}/lines`, { params });
   return response as unknown as ApiResponse<{ lines: DnsLine[] }>;
+};
+
+export const getDNSMinTTL = async (
+  zoneId: string,
+  credentialId?: number
+): Promise<ApiResponse<{ minTTL: number }>> => {
+  const params = credentialId !== undefined ? { credentialId } : {};
+  const response = await api.get(`/dns-records/zones/${zoneId}/min-ttl`, { params });
+  return response as unknown as ApiResponse<{ minTTL: number }>;
 };
 
 /**

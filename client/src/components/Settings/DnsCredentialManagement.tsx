@@ -65,7 +65,7 @@ const PROVIDER_CREDENTIAL_GUIDE: Record<ProviderType, { title: string; steps: st
     link: 'https://ram.console.aliyun.com/manage/ak'
   },
   dnspod: {
-    title: 'DNSPod API 密钥获取方式',
+    title: '腾讯云 API 密钥获取方式',
     steps: [
       '登录 DNSPod 控制台',
       '进入 账号中心 → 密钥管理',

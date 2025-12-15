@@ -10,15 +10,33 @@ export const getDomains = async (credentialId?: number | 'all' | null): Promise<
   if (credentialId !== undefined && credentialId !== null) {
     params.credentialId = credentialId;
   }
-  const response = await api.get('/dns-records/zones', {
-    params: {
-      ...params,
-      page: 1,
-      pageSize: 5000,
-    },
-  });
 
-  const zones = (response as any)?.data?.zones || [];
+  const pageSize = 100;
+  let page = 1;
+  let total = 0;
+  const zones: any[] = [];
+  let firstResponse: any | undefined;
+
+  while (page <= 200) {
+    const response = await api.get('/dns-records/zones', {
+      params: {
+        ...params,
+        page,
+        pageSize,
+      },
+    });
+
+    if (!firstResponse) firstResponse = response;
+
+    const batch = (response as any)?.data?.zones || [];
+    total = (response as any)?.data?.total ?? total;
+    zones.push(...batch);
+
+    if (batch.length === 0) break;
+    if (total > 0 && zones.length >= total) break;
+    page += 1;
+  }
+
   const credId = typeof credentialId === 'number' ? credentialId : undefined;
   const domains: Domain[] = zones.map((z: any) => ({
     id: z.id,
@@ -30,9 +48,9 @@ export const getDomains = async (credentialId?: number | 'all' | null): Promise<
   }));
 
   return {
-    ...(response as any),
+    ...(firstResponse as any),
     data: {
-      ...(response as any)?.data,
+      ...(firstResponse as any)?.data,
       domains,
     },
   } as ApiResponse<{ domains: Domain[] }>;

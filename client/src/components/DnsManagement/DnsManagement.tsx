@@ -17,9 +17,10 @@ import {
 import { 
   Add as AddIcon, 
   Dns as DnsIcon,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  Refresh as RefreshIcon
 } from '@mui/icons-material';
-import { getDNSRecords, createDNSRecord, updateDNSRecord, deleteDNSRecord, getDNSLines, setDNSRecordStatus } from '@/services/dns';
+import { getDNSRecords, createDNSRecord, updateDNSRecord, deleteDNSRecord, getDNSLines, getDNSMinTTL, setDNSRecordStatus } from '@/services/dns';
 import DNSRecordTable from '@/components/DNSRecordTable/DNSRecordTable';
 import QuickAddForm from '@/components/QuickAddForm/QuickAddForm';
 import CustomHostnameList, { CustomHostnameListRef } from '@/components/CustomHostnameList/CustomHostnameList';
@@ -48,18 +49,38 @@ export default function DnsManagement({ zoneId, credentialId }: DnsManagementPro
   const queryClient = useQueryClient();
   const [showQuickAdd, setShowQuickAdd] = useState(false);
 
-  const { data, isLoading, error } = useQuery({
+  const {
+    data,
+    isLoading,
+    isFetching: isRecordsFetching,
+    error,
+    refetch: refetchRecords,
+  } = useQuery({
     queryKey: ['dns-records', zoneId, credentialId],
     queryFn: () => getDNSRecords(zoneId, credentialId),
     enabled: !!zoneId,
   });
 
   // 获取线路列表
-  const { data: linesData } = useQuery({
+  const { data: linesData, refetch: refetchLines } = useQuery({
     queryKey: ['dns-lines', zoneId, credentialId],
     queryFn: () => getDNSLines(zoneId, credentialId),
     enabled: !!zoneId && supportsLine,
   });
+
+  const { data: minTtlData, refetch: refetchMinTtl } = useQuery({
+    queryKey: ['dns-min-ttl', zoneId, credentialId],
+    queryFn: () => getDNSMinTTL(zoneId, credentialId),
+    enabled: !!zoneId,
+  });
+
+  const handleRefresh = async () => {
+    await Promise.all([
+      refetchRecords(),
+      supportsLine ? refetchLines() : Promise.resolve(),
+      refetchMinTtl(),
+    ]);
+  };
 
   const createMutation = useMutation({
     mutationFn: (params: any) => createDNSRecord(zoneId, params, credentialId),
@@ -103,6 +124,7 @@ export default function DnsManagement({ zoneId, credentialId }: DnsManagementPro
 
   const records = data?.data?.records || [];
   const lines = linesData?.data?.lines || [];
+  const minTTL = minTtlData?.data?.minTTL;
 
   return (
     <Box sx={{ py: 2, px: 6, bgcolor: 'background.default' }}>
@@ -113,14 +135,25 @@ export default function DnsManagement({ zoneId, credentialId }: DnsManagementPro
         </Tabs>
         <Box sx={{ mb: 1, mr: 1 }}>
           {activeTab === 0 && (
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<AddIcon />}
-              onClick={() => setShowQuickAdd(true)}
-            >
-              添加记录
-            </Button>
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => setShowQuickAdd(true)}
+              >
+                添加记录
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<RefreshIcon />}
+                onClick={handleRefresh}
+                disabled={isLoading || isRecordsFetching}
+              >
+                刷新
+              </Button>
+            </Stack>
           )}
           {activeTab === 1 && supportsCustomHostnames && (
             <Stack direction="row" spacing={2}>
@@ -159,6 +192,7 @@ export default function DnsManagement({ zoneId, credentialId }: DnsManagementPro
             <DNSRecordTable
               records={records}
               lines={lines}
+              minTTL={minTTL}
               onUpdate={(recordId, params) => updateMutation.mutate({ recordId, params })}
               onDelete={(recordId) => {
                 if (window.confirm('确定要删除这条 DNS 记录吗？')) {
@@ -190,6 +224,7 @@ export default function DnsManagement({ zoneId, credentialId }: DnsManagementPro
                 onSubmit={(params) => createMutation.mutate(params)}
                 loading={createMutation.isPending}
                 lines={lines}
+                minTTL={minTTL}
               />
             </DialogContent>
             <DialogActions sx={{ px: 3, pb: 3 }}>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   Table,
+  TableContainer,
   TableBody,
   TableCell,
   TableHead,
@@ -13,6 +14,7 @@ import {
   TextField,
   MenuItem,
   Switch,
+  ListSubheader,
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -35,6 +37,7 @@ interface DNSRecordTableProps {
   onDelete: (recordId: string) => void;
   onStatusChange?: (recordId: string, enabled: boolean) => void;
   lines?: DnsLine[];
+  minTTL?: number;
 }
 
 /**
@@ -47,10 +50,26 @@ export default function DNSRecordTable({
   onDelete,
   onStatusChange,
   lines = [],
+  minTTL,
 }: DNSRecordTableProps) {
   const { selectedProvider, currentCapabilities } = useProvider();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<DNSRecord>>({});
+
+  const compactTextFieldSx = {
+    '& .MuiInputBase-root': {
+      height: 32,
+      fontSize: '0.875rem',
+    },
+    '& .MuiInputBase-input': {
+      paddingTop: 0,
+      paddingBottom: 0,
+    },
+    '& .MuiSelect-select': {
+      paddingTop: '6px',
+      paddingBottom: '6px',
+    },
+  };
 
   // 根据供应商能力决定显示哪些列
   const caps: ProviderCapabilities = currentCapabilities || {
@@ -73,8 +92,32 @@ export default function DNSRecordTable({
   const showRemark = caps.supportsRemark;
   const recordTypes = caps.recordTypes;
 
+  const ttlOptions = TTL_OPTIONS.filter((o) => {
+    if (selectedProvider !== 'cloudflare' && o.value === 1) return false;
+    if (typeof minTTL === 'number' && Number.isFinite(minTTL) && minTTL > 0) {
+      if (selectedProvider === 'cloudflare' && o.value === 1) return true;
+      return o.value >= minTTL;
+    }
+    return true;
+  });
+
+  const safeTtlOptions = ttlOptions.length > 0
+    ? ttlOptions
+    : (typeof minTTL === 'number' && Number.isFinite(minTTL) && minTTL > 0
+        ? [{ label: `${minTTL} 秒`, value: minTTL }]
+        : TTL_OPTIONS.filter(o => (selectedProvider === 'cloudflare' ? true : o.value !== 1)));
+
+  const hasLineCategories = lines.some(l => !!l.parentCode);
+  const groupedLines = lines.reduce<Record<string, DnsLine[]>>((acc, line) => {
+    const key = line.parentCode || '其他';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(line);
+    return acc;
+  }, {});
+
   // 计算动态列数
   const columnCount = 5 + (showProxied ? 1 : 0) + (showWeight ? 1 : 0) + (showLine ? 1 : 0) + (showStatus ? 1 : 0) + (showRemark ? 1 : 0);
+  const minTableWidth = Math.max(650, columnCount * 110);
 
   const handleEditClick = (record: DNSRecord) => {
     setEditingId(record.id);
@@ -118,46 +161,76 @@ export default function DNSRecordTable({
     return line?.name || lineCode;
   };
 
-  return (
-    <Table sx={{ minWidth: 650 }}>
-      <TableHead>
-        <TableRow>
-          <TableCell>类型</TableCell>
-          <TableCell>名称</TableCell>
-          <TableCell sx={{ maxWidth: 300 }}>内容</TableCell>
-          <TableCell>TTL</TableCell>
-          {showProxied && <TableCell align="center">代理状态</TableCell>}
-          <TableCell>优先级</TableCell>
-          {showWeight && <TableCell>权重</TableCell>}
-          {showLine && <TableCell>线路</TableCell>}
-          {showRemark && <TableCell>备注</TableCell>}
-          {showStatus && <TableCell align="center">状态</TableCell>}
-          <TableCell align="right">操作</TableCell>
-        </TableRow>
-      </TableHead>
-      <TableBody>
-        {records.length === 0 ? (
-          <TableRow>
-            <TableCell colSpan={columnCount} align="center" sx={{ py: 8 }}>
-              <Typography variant="body1" color="text.secondary">
-                暂无 DNS 记录
-              </Typography>
-            </TableCell>
-          </TableRow>
-        ) : (
-          records.map((record) => {
-            const isEditing = editingId === record.id;
+  const normalizeFqdn = (v?: string) => String(v || '').trim().replace(/\.+$/, '').toLowerCase();
+  const visibleRecords = records.filter(r => {
+    if (r.type !== 'NS') return true;
+    const zone = normalizeFqdn(r.zoneName);
+    if (!zone) return true;
+    const name = normalizeFqdn(r.name);
+    if (!name || name === '@') return false;
+    return name !== zone;
+  });
 
-            if (isEditing) {
-              return (
-                <TableRow key={record.id} hover>
+  return (
+    <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
+      <Table sx={{ minWidth: minTableWidth, '& .MuiTableCell-root': { whiteSpace: 'nowrap' } }}>
+        <TableHead>
+          <TableRow>
+            <TableCell>类型</TableCell>
+            <TableCell>名称</TableCell>
+            <TableCell sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}>内容</TableCell>
+            <TableCell>TTL</TableCell>
+            {showProxied && <TableCell align="center">代理状态</TableCell>}
+            <TableCell>优先级</TableCell>
+            {showWeight && <TableCell>权重</TableCell>}
+            {showLine && <TableCell>线路</TableCell>}
+            {showRemark && <TableCell>备注</TableCell>}
+            {showStatus && <TableCell align="center">状态</TableCell>}
+            <TableCell align="right">操作</TableCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {visibleRecords.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={columnCount} align="center" sx={{ py: 8 }}>
+                <Typography variant="body1" color="text.secondary">
+                  暂无 DNS 记录
+                </Typography>
+              </TableCell>
+            </TableRow>
+          ) : (
+            visibleRecords.map((record) => {
+              const isEditing = editingId === record.id;
+
+              if (isEditing) {
+                const editingType =
+                  typeof editForm.type === 'string' && recordTypes.includes(editForm.type)
+                    ? editForm.type
+                    : (recordTypes[0] ?? '');
+                const firstAllowedTtl = safeTtlOptions[0]?.value ?? TTL_OPTIONS[0].value;
+                const editingTtl =
+                  typeof editForm.ttl === 'number' && safeTtlOptions.some(o => o.value === editForm.ttl)
+                    ? editForm.ttl
+                    : firstAllowedTtl;
+
+                return (
+                  <TableRow
+                    key={record.id}
+                    hover
+                    sx={{
+                      '& > .MuiTableCell-root': {
+                        py: 0.5,
+                        px: 1,
+                      },
+                    }}
+                  >
                    <TableCell>
                     <TextField
                       select
                       size="small"
-                      value={editForm.type}
+                      value={editingType}
                       onChange={(e) => handleChange('type', e.target.value)}
-                      sx={{ minWidth: 80 }}
+                      sx={{ width: 72, minWidth: 72, ...compactTextFieldSx }}
                     >
                       {recordTypes.map((type) => (
                         <MenuItem key={type} value={type}>{type}</MenuItem>
@@ -167,27 +240,29 @@ export default function DNSRecordTable({
                    <TableCell>
                     <TextField
                       size="small"
-                      value={editForm.name}
+                      value={editForm.name ?? ''}
                       onChange={(e) => handleChange('name', e.target.value)}
+                      sx={compactTextFieldSx}
                     />
                    </TableCell>
-                   <TableCell sx={{ maxWidth: 300 }}>
+                   <TableCell sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     <TextField
                       size="small"
                       fullWidth
-                      value={editForm.content}
+                      value={editForm.content ?? ''}
                       onChange={(e) => handleChange('content', e.target.value)}
+                      sx={compactTextFieldSx}
                     />
                    </TableCell>
                    <TableCell>
                     <TextField
                       select
                       size="small"
-                      value={editForm.ttl}
+                      value={editingTtl}
                       onChange={(e) => handleChange('ttl', Number(e.target.value))}
-                      sx={{ minWidth: 100 }}
+                      sx={{ minWidth: 100, ...compactTextFieldSx }}
                     >
-                      {TTL_OPTIONS.map((opt) => (
+                      {safeTtlOptions.map((opt) => (
                         <MenuItem key={opt.value} value={opt.value}>{opt.label}</MenuItem>
                       ))}
                     </TextField>
@@ -201,13 +276,13 @@ export default function DNSRecordTable({
                      </TableCell>
                    )}
                    <TableCell>
-                     {(editForm.type === 'MX' || editForm.type === 'SRV') && (
+                     {(editingType === 'MX' || editingType === 'SRV') && (
                        <TextField
                          type="number"
                          size="small"
-                         value={editForm.priority}
-                         onChange={(e) => handleChange('priority', Number(e.target.value))}
-                         sx={{ maxWidth: 80 }}
+                         value={editForm.priority ?? ''}
+                         onChange={(e) => handleChange('priority', e.target.value === '' ? undefined : Number(e.target.value))}
+                         sx={{ maxWidth: 80, ...compactTextFieldSx }}
                        />
                      )}
                    </TableCell>
@@ -218,7 +293,7 @@ export default function DNSRecordTable({
                          size="small"
                          value={editForm.weight ?? ''}
                          onChange={(e) => handleChange('weight', e.target.value ? Number(e.target.value) : undefined)}
-                         sx={{ maxWidth: 80 }}
+                         sx={{ maxWidth: 80, ...compactTextFieldSx }}
                          placeholder="1-100"
                        />
                      </TableCell>
@@ -230,11 +305,27 @@ export default function DNSRecordTable({
                          size="small"
                          value={editForm.line || 'default'}
                          onChange={(e) => handleChange('line', e.target.value)}
-                         sx={{ minWidth: 100 }}
+                         sx={{ minWidth: 100, ...compactTextFieldSx }}
                        >
-                         {lines.map((line) => (
-                           <MenuItem key={line.code} value={line.code}>{line.name}</MenuItem>
-                         ))}
+                         {hasLineCategories
+                           ? Object.keys(groupedLines)
+                               .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+                               .flatMap((group) => [
+                                 <ListSubheader key={`group-${group}`}>{group}</ListSubheader>,
+                                 ...groupedLines[group]
+                                   .slice()
+                                   .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'zh-CN'))
+                                   .map((line) => (
+                                     <MenuItem key={`${group}-${line.code}`} value={line.code}>
+                                       {line.name}
+                                     </MenuItem>
+                                   )),
+                               ])
+                           : lines.map((line) => (
+                               <MenuItem key={line.code} value={line.code}>
+                                 {line.name}
+                               </MenuItem>
+                             ))}
                        </TextField>
                      </TableCell>
                    )}
@@ -245,7 +336,7 @@ export default function DNSRecordTable({
                          value={editForm.remark || ''}
                          onChange={(e) => handleChange('remark', e.target.value)}
                          placeholder="备注"
-                         sx={{ minWidth: 100 }}
+                         sx={{ minWidth: 100, ...compactTextFieldSx }}
                        />
                      </TableCell>
                    )}
@@ -283,7 +374,7 @@ export default function DNSRecordTable({
                     {record.name}
                   </Typography>
                 </TableCell>
-                <TableCell sx={{ maxWidth: 300, wordBreak: 'break-all' }}>
+                <TableCell sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   <Typography variant="body2" fontFamily="monospace" fontSize="0.85rem">
                     {record.content}
                   </Typography>
@@ -302,7 +393,9 @@ export default function DNSRecordTable({
                     )}
                   </TableCell>
                 )}
-                <TableCell>{record.priority || '-'}</TableCell>
+                <TableCell>
+                  {record.type === 'MX' || record.type === 'SRV' ? (record.priority ?? '-') : '-'}
+                </TableCell>
                 {showWeight && <TableCell>{record.weight ?? '-'}</TableCell>}
                 {showLine && <TableCell>{record.lineName || getLineName(record.line)}</TableCell>}
                 {showRemark && (
@@ -351,7 +444,8 @@ export default function DNSRecordTable({
             );
           })
         )}
-      </TableBody>
-    </Table>
+        </TableBody>
+      </Table>
+    </TableContainer>
   );
 }

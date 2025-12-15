@@ -55,7 +55,8 @@ interface DnslaResponse {
 
 interface DnslaDomain {
   id: string;
-  domain: string;
+  domain?: string;
+  displayDomain?: string;
   recordCount?: number;
 }
 
@@ -68,7 +69,43 @@ interface DnslaRecord {
   lineId?: string;
   weight?: number;
   preference?: number;
+  disable?: boolean;
+  dominant?: boolean;
+  domaint?: boolean;
+  updatedAt?: number;
   state?: number;
+}
+
+function fromDnslaRecordType(typeId: number, dominant?: boolean): string {
+  if (typeId === 256) return dominant ? 'REDIRECT_URL' : 'FORWARD_URL';
+  return ID_TO_TYPE[typeId] || String(typeId);
+}
+
+function toDnslaRecordType(type: string): { type: number; dominant?: boolean } {
+  const t = String(type).toUpperCase();
+  if (t === 'REDIRECT_URL') return { type: 256, dominant: true };
+  if (t === 'FORWARD_URL') return { type: 256, dominant: false };
+  const typeId = TYPE_TO_ID[t];
+  if (!typeId) return { type: NaN };
+  return { type: typeId };
+}
+
+function toDnslaStatus(disable?: boolean, state?: number): '0' | '1' {
+  if (typeof disable === 'boolean') return disable ? '0' : '1';
+  if (typeof state === 'number') return state === 1 ? '1' : '0';
+  return '1';
+}
+
+function fromDnslaLineId(lineId?: string): string {
+  const v = String(lineId ?? '').trim();
+  if (!v || v === '0') return 'default';
+  return v;
+}
+
+function toDnslaLineId(line?: string): string {
+  const v = String(line ?? '').trim();
+  if (!v || v === 'default') return '';
+  return v;
 }
 
 export const DNSLA_CAPABILITIES: ProviderCapabilities = {
@@ -186,13 +223,14 @@ export class DnslaProvider extends BaseProvider {
         pageIndex: page || 1,
         pageSize: pageSize || 20,
       });
-      const list: DnslaDomain[] = resp.data?.list || [];
-      const total = resp.data?.total || list.length;
+      const data = resp.data || {};
+      const list: DnslaDomain[] = data.results || data.list || [];
+      const total = data.total || list.length;
 
       const zones: Zone[] = list.map(d =>
         this.normalizeZone({
           id: d.id,
-          name: d.domain,
+          name: (d.displayDomain || d.domain || d.id).replace(/\.$/, ''),
           status: 'active',
           recordCount: d.recordCount,
         })
@@ -210,7 +248,7 @@ export class DnslaProvider extends BaseProvider {
       const d = resp.data;
       return this.normalizeZone({
         id: d.id || zoneId,
-        name: d.domain || zoneId,
+        name: (d.displayDomain || d.domain || zoneId).replace(/\.$/, ''),
         status: 'active',
       });
     } catch (err) {
@@ -227,11 +265,19 @@ export class DnslaProvider extends BaseProvider {
         pageSize: params?.pageSize || 20,
       };
       if (params?.keyword) query.host = params.keyword;
-      if (params?.type) query.type = TYPE_TO_ID[params.type.toUpperCase()];
+      if (params?.subDomain) query.host = params.subDomain;
+      if (params?.value) query.data = params.value;
+      if (params?.line) query.lineId = toDnslaLineId(params.line);
+      if (params?.type) {
+        const mapped = toDnslaRecordType(params.type);
+        if (!Number.isFinite(mapped.type)) throw this.createError('INVALID_TYPE', `不支持的记录类型: ${params.type}`);
+        query.type = mapped.type;
+      }
 
       const resp = await this.request<DnslaResponse>('GET', '/api/recordList', query);
-      const list: DnslaRecord[] = resp.data?.list || [];
-      const total = resp.data?.total || list.length;
+      const data = resp.data || {};
+      const list: DnslaRecord[] = data.results || data.list || [];
+      const total = data.total || list.length;
 
       const records: DnsRecord[] = list.map(r =>
         this.normalizeRecord({
@@ -239,13 +285,15 @@ export class DnslaProvider extends BaseProvider {
           zoneId: zoneId,
           zoneName: zone.name,
           name: r.host || '@',
-          type: ID_TO_TYPE[r.type] || String(r.type),
+          type: fromDnslaRecordType(r.type, (r as any).dominant ?? (r as any).domaint),
           value: r.data,
           ttl: r.ttl,
-          line: r.lineId || 'default',
+          line: fromDnslaLineId(r.lineId),
           weight: r.weight,
           priority: r.preference,
-          status: r.state === 1 ? '1' : '0',
+          status: toDnslaStatus((r as any).disable, (r as any).state),
+          updatedAt: r.updatedAt ? new Date(Number(r.updatedAt) * 1000).toISOString() : undefined,
+          meta: { raw: r },
         })
       );
 
@@ -268,17 +316,18 @@ export class DnslaProvider extends BaseProvider {
 
   async createRecord(zoneId: string, params: CreateRecordParams): Promise<DnsRecord> {
     try {
-      const typeId = TYPE_TO_ID[params.type.toUpperCase()];
-      if (!typeId) throw this.createError('INVALID_TYPE', `不支持的记录类型: ${params.type}`);
+      const mapped = toDnslaRecordType(params.type);
+      if (!Number.isFinite(mapped.type)) throw this.createError('INVALID_TYPE', `不支持的记录类型: ${params.type}`);
 
       const body: Record<string, any> = {
         domainId: zoneId,
-        host: params.name === '@' ? '' : params.name,
-        type: typeId,
+        host: params.name === '@' ? '@' : params.name,
+        type: mapped.type,
         data: params.value,
         ttl: params.ttl || 600,
       };
-      if (params.line) body.lineId = params.line;
+      if (mapped.dominant !== undefined) body.dominant = mapped.dominant;
+      if (params.line !== undefined) body.lineId = toDnslaLineId(params.line);
       if (params.weight !== undefined) body.weight = params.weight;
       if (params.priority !== undefined) body.preference = params.priority;
 
@@ -294,17 +343,18 @@ export class DnslaProvider extends BaseProvider {
 
   async updateRecord(zoneId: string, recordId: string, params: UpdateRecordParams): Promise<DnsRecord> {
     try {
-      const typeId = TYPE_TO_ID[params.type.toUpperCase()];
-      if (!typeId) throw this.createError('INVALID_TYPE', `不支持的记录类型: ${params.type}`);
+      const mapped = toDnslaRecordType(params.type);
+      if (!Number.isFinite(mapped.type)) throw this.createError('INVALID_TYPE', `不支持的记录类型: ${params.type}`);
 
       const body: Record<string, any> = {
         id: recordId,
-        host: params.name === '@' ? '' : params.name,
-        type: typeId,
+        host: params.name === '@' ? '@' : params.name,
+        type: mapped.type,
         data: params.value,
         ttl: params.ttl || 600,
       };
-      if (params.line) body.lineId = params.line;
+      if (mapped.dominant !== undefined) body.dominant = mapped.dominant;
+      if (params.line !== undefined) body.lineId = toDnslaLineId(params.line);
       if (params.weight !== undefined) body.weight = params.weight;
       if (params.priority !== undefined) body.preference = params.priority;
 
@@ -340,12 +390,23 @@ export class DnslaProvider extends BaseProvider {
     try {
       if (!zoneId) return { lines: [{ code: 'default', name: '默认' }] };
 
-      const resp = await this.request<DnslaResponse>('GET', '/api/availableLine', { domainId: zoneId });
-      const list = resp.data || [];
-      const lines: DnsLine[] = list.map((l: any) => ({
-        code: l.id || l.lineId,
-        name: l.name || l.lineName,
-      }));
+      const zone = await this.getZone(zoneId);
+      const resp = await this.request<DnslaResponse>('GET', '/api/availableLine', { domain: zone.name });
+      const list = Array.isArray(resp.data) ? resp.data : [];
+      const sorted = [...list].sort((a: any, b: any) => Number(a?.order || 0) - Number(b?.order || 0));
+      const lines: DnsLine[] = sorted.map((l: any) => {
+        const id = l.id ?? l.lineId;
+        const code = fromDnslaLineId(String(id === '0' ? '' : id ?? ''));
+        return {
+          code,
+          name: String(l.value || l.name || l.lineName || code || '默认'),
+          parentCode: l.pid ? String(l.pid) : undefined,
+        };
+      });
+
+      if (!lines.some(l => l.code === 'default')) {
+        lines.unshift({ code: 'default', name: '默认' });
+      }
 
       return { lines: lines.length > 0 ? lines : [{ code: 'default', name: '默认' }] };
     } catch (err) {
@@ -356,8 +417,9 @@ export class DnslaProvider extends BaseProvider {
   async getMinTTL(zoneId?: string): Promise<number> {
     try {
       if (!zoneId) return 600;
-      const resp = await this.request<DnslaResponse>('GET', '/api/dnsMeasures', { domainId: zoneId });
-      return resp.data?.minTtl || 600;
+      const resp = await this.request<DnslaResponse>('GET', '/api/dnsMeasures', { id: zoneId });
+      const min = resp.data?.minTTL ?? resp.data?.minTtl;
+      return typeof min === 'number' && Number.isFinite(min) && min > 0 ? min : 600;
     } catch {
       return 600;
     }

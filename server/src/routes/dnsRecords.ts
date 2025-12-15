@@ -58,9 +58,9 @@ async function getServiceContext(userId: number, credentialId?: string): Promise
 function handleProviderError(res: any, error: any) {
   if (error instanceof DnsProviderError) {
     const status = error.details.httpStatus || 400;
-    return errorResponse(res, error.message, status);
+    return errorResponse(res, error.message, status, error.details);
   }
-  return errorResponse(res, error.message || '操作失败', 400);
+  return errorResponse(res, error.message || '操作失败', 400, error);
 }
 
 // ========== 域名相关 ==========
@@ -73,7 +73,8 @@ router.get('/zones', authenticateToken, generalLimiter, async (req: AuthRequest,
   try {
     const ctx = await getServiceContext(req.user!.id, req.query.credentialId as string);
     const page = parseInt(req.query.page as string) || 1;
-    const pageSize = parseInt(req.query.pageSize as string) || 20;
+    const pageSizeInput = parseInt(req.query.pageSize as string);
+    const pageSize = Math.min(Number.isFinite(pageSizeInput) ? pageSizeInput : 20, 100);
     const keyword = req.query.keyword as string;
 
     const result = await dnsService.getZones(ctx, page, pageSize, keyword);
@@ -117,7 +118,7 @@ router.get('/zones/:zoneId/records', authenticateToken, generalLimiter, async (r
 
     const params = {
       page: parseInt(req.query.page as string) || 1,
-      pageSize: parseInt(req.query.pageSize as string) || 20,
+      pageSize: Math.min(parseInt(req.query.pageSize as string) || 20, 500),
       keyword: req.query.keyword as string,
       subDomain: req.query.subDomain as string,
       type: req.query.type as string,
@@ -356,6 +357,18 @@ router.get('/zones/:zoneId/lines', authenticateToken, generalLimiter, async (req
     const result = await dnsService.getLines(ctx, zoneId);
 
     return successResponse(res, { lines: result.lines }, '获取线路列表成功');
+  } catch (error: any) {
+    return handleProviderError(res, error);
+  }
+});
+router.get('/zones/:zoneId/min-ttl', authenticateToken, generalLimiter, async (req: AuthRequest, res) => {
+  try {
+    const ctx = await getServiceContext(req.user!.id, req.query.credentialId as string);
+    const { zoneId } = req.params;
+
+    const minTTL = await dnsService.getMinTTL(ctx, zoneId);
+
+    return successResponse(res, { minTTL }, '获取最低TTL成功');
   } catch (error: any) {
     return handleProviderError(res, error);
   }

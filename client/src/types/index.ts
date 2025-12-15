@@ -35,8 +35,8 @@ export type DNSRecordType =
   | 'CAA'
   | 'NS'
   | 'PTR'
-  | 'EXPLICIT_URL'
-  | 'IMPLICIT_URL';
+  | 'REDIRECT_URL'
+  | 'FORWARD_URL';
 
 /**
  * DNS 记录
@@ -44,6 +44,7 @@ export type DNSRecordType =
 export interface DNSRecord {
   id: string;
   type: DNSRecordType;
+  zoneName?: string;
   name: string;
   content: string;
   ttl: number;

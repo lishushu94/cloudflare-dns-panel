@@ -43,6 +43,7 @@ interface WestRecord {
   type: string;
   ttl: number;
   level?: number;
+  line?: string;
   pause?: number;
 }
 
@@ -51,7 +52,7 @@ export const WEST_CAPABILITIES: ProviderCapabilities = {
   name: '西部数码',
 
   supportsWeight: false,
-  supportsLine: false,
+  supportsLine: true,
   supportsStatus: true,
   supportsRemark: false,
   supportsUrlForward: false,
@@ -73,6 +74,40 @@ export const WEST_CAPABILITIES: ProviderCapabilities = {
 
   retryableErrors: ['SYSTEM_BUSY', 'InternalError'],
   maxRetries: 3,
+};
+
+const WEST_LINE_LIST: DnsLine[] = [
+  { code: 'default', name: '默认' },
+  { code: 'telecom', name: '电信' },
+  { code: 'unicom', name: '联通' },
+  { code: 'mobile', name: '移动' },
+  { code: 'edu', name: '教育网' },
+  { code: 'seo', name: '搜索引擎' },
+  { code: 'oversea', name: '境外' },
+];
+
+const toWestLine = (line?: string): string | undefined => {
+  if (!line || line === 'default') return '';
+  if (line === 'telecom') return 'LTEL';
+  if (line === 'unicom') return 'LCNC';
+  if (line === 'mobile') return 'LMOB';
+  if (line === 'edu') return 'LEDU';
+  if (line === 'seo') return 'LSEO';
+  if (line === 'oversea') return 'LFOR';
+  return line;
+};
+
+const fromWestLine = (line?: string): string | undefined => {
+  if (line === undefined || line === null) return undefined;
+  const v = String(line);
+  if (v === '') return 'default';
+  if (v === 'LTEL') return 'telecom';
+  if (v === 'LCNC') return 'unicom';
+  if (v === 'LMOB') return 'mobile';
+  if (v === 'LEDU') return 'edu';
+  if (v === 'LSEO') return 'seo';
+  if (v === 'LFOR') return 'oversea';
+  return v;
 };
 
 export class WestProvider extends BaseProvider {
@@ -201,11 +236,14 @@ export class WestProvider extends BaseProvider {
     try {
       const query: Record<string, any> = {
         domain: zoneId,
-        page: params?.page || 1,
+        pageno: params?.page || 1,
         limit: params?.pageSize || 20,
       };
       if (params?.subDomain) query.host = params.subDomain;
+      if (params?.keyword && !params?.subDomain) query.host = params.keyword;
       if (params?.type) query.type = params.type;
+      if (params?.value) query.value = params.value;
+      if (params?.line) query.line = toWestLine(params.line);
 
       const resp = await this.request<WestResponse>('getdnsrecord', query);
       const list: WestRecord[] = resp.data?.items || resp.data || [];
@@ -221,6 +259,7 @@ export class WestProvider extends BaseProvider {
           value: r.value,
           ttl: r.ttl || 600,
           priority: r.level,
+          line: fromWestLine(r.line),
           status: r.pause === 1 ? '0' : '1',
         })
       );
@@ -252,6 +291,7 @@ export class WestProvider extends BaseProvider {
         ttl: params.ttl || 600,
       };
       if (params.priority !== undefined) body.level = params.priority;
+      if (params.line !== undefined) body.line = toWestLine(params.line);
 
       const resp = await this.request<WestResponse>('adddnsrecord', body);
       const recordId = resp.data?.id;
@@ -274,6 +314,7 @@ export class WestProvider extends BaseProvider {
         ttl: params.ttl || 600,
       };
       if (params.priority !== undefined) body.level = params.priority;
+      if (params.line !== undefined) body.line = toWestLine(params.line);
 
       await this.request('moddnsrecord', body);
       return await this.getRecord(zoneId, recordId);
@@ -293,11 +334,11 @@ export class WestProvider extends BaseProvider {
 
   async setRecordStatus(zoneId: string, recordId: string, enabled: boolean): Promise<boolean> {
     try {
-      // pause=1 表示暂停，pause=0 表示启用
+      // val=1 表示暂停，val=0 表示启用
       await this.request('pause', {
         domain: zoneId,
         id: recordId,
-        pause: enabled ? 0 : 1,
+        val: enabled ? 0 : 1,
       });
       return true;
     } catch (err) {
@@ -306,8 +347,7 @@ export class WestProvider extends BaseProvider {
   }
 
   async getLines(_zoneId?: string): Promise<LineListResult> {
-    const lines: DnsLine[] = [{ code: 'default', name: '默认' }];
-    return { lines };
+    return { lines: WEST_LINE_LIST };
   }
 
   async getMinTTL(_zoneId?: string): Promise<number> {

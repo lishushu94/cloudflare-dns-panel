@@ -43,7 +43,6 @@ interface BaiduZonesResponse {
 
 interface BaiduRecord {
   id?: string;
-  recordId?: string;
   rr: string;
   type: string;
   value: string;
@@ -55,7 +54,7 @@ interface BaiduRecord {
 }
 
 interface BaiduRecordsResponse {
-  rrs?: BaiduRecord[];
+  records?: BaiduRecord[];
   marker?: string;
   isTruncated?: boolean;
   nextMarker?: string;
@@ -68,7 +67,7 @@ const BAIDU_LINES: DnsLine[] = [
   { code: 'cnc', name: '联通' },
   { code: 'cmnet', name: '移动' },
   { code: 'edu', name: '教育网' },
-  { code: 'oversea', name: '海外' },
+  { code: 'search', name: '搜索引擎(百度)' },
 ];
 
 export const BAIDU_CAPABILITIES: ProviderCapabilities = {
@@ -77,7 +76,7 @@ export const BAIDU_CAPABILITIES: ProviderCapabilities = {
 
   supportsWeight: false,
   supportsLine: true,
-  supportsStatus: false,
+  supportsStatus: true,
   supportsRemark: true,
   supportsUrlForward: false,
   supportsLogs: false,
@@ -185,14 +184,17 @@ export class BaiduProvider extends BaseProvider {
 
   async getZones(page?: number, pageSize?: number, keyword?: string): Promise<ZoneListResult> {
     try {
-      const resp = await this.request<BaiduZonesResponse>('GET', '/v1/dns/zone');
-      let zones: Zone[] = (resp.zones || []).map(z =>
-        this.normalizeZone({
-          id: z.name,
-          name: z.name,
+      const resp = await this.request<BaiduZonesResponse>('GET', '/v1/dns/zone', keyword ? { name: keyword } : undefined);
+      const zones: Zone[] = (resp.zones || []).map(z => {
+        const rawName = String(z.name || '').trim();
+        const name = rawName.endsWith('.') ? rawName.slice(0, -1) : rawName;
+        return this.normalizeZone({
+          id: name,
+          name,
           status: z.status || 'active',
-        })
-      );
+          meta: { zoneId: z.id },
+        });
+      });
 
       return this.applyZoneQuery(zones, page, pageSize, keyword);
     } catch (err) {
@@ -206,11 +208,19 @@ export class BaiduProvider extends BaseProvider {
 
   async getRecords(zoneId: string, params?: RecordQueryParams): Promise<RecordListResult> {
     try {
-      const resp = await this.request<BaiduRecordsResponse>('GET', `/v1/dns/zone/${encodeURIComponent(zoneId)}/record`);
+      const query: Record<string, any> = {};
+      if (params?.subDomain) {
+        query.rr = params.subDomain === '@' ? '@' : String(params.subDomain).toLowerCase();
+      }
+      const resp = await this.request<BaiduRecordsResponse>(
+        'GET',
+        `/v1/dns/zone/${encodeURIComponent(zoneId)}/record`,
+        Object.keys(query).length > 0 ? query : undefined
+      );
 
-      const records: DnsRecord[] = (resp.rrs || []).map(r =>
+      const records: DnsRecord[] = (resp.records || []).map(r =>
         this.normalizeRecord({
-          id: r.recordId || r.id || `${r.rr}|${r.type}|${r.value}`,
+          id: r.id || `${r.rr}|${r.type}|${r.value}`,
           zoneId: zoneId,
           zoneName: zoneId,
           name: r.rr || '@',
@@ -220,6 +230,7 @@ export class BaiduProvider extends BaseProvider {
           line: r.line || 'default',
           priority: r.priority,
           remark: r.description,
+          status: r.status === 'running' ? '1' : '0',
         })
       );
 
@@ -252,9 +263,9 @@ export class BaiduProvider extends BaseProvider {
       if (params.priority !== undefined) body.priority = params.priority;
       if (params.remark) body.description = params.remark;
 
-      const resp = await this.request<{ recordId?: string }>('POST', `/v1/dns/zone/${encodeURIComponent(zoneId)}/record`, { clientToken: generateClientToken() }, body);
+      const resp = await this.request<{ id?: string }>('POST', `/v1/dns/zone/${encodeURIComponent(zoneId)}/record`, { clientToken: generateClientToken() }, body);
 
-      const recordId = resp.recordId;
+      const recordId = resp.id;
       if (!recordId) throw this.createError('CREATE_FAILED', '创建记录失败');
       return await this.getRecord(zoneId, recordId);
     } catch (err) {
@@ -290,8 +301,15 @@ export class BaiduProvider extends BaseProvider {
     }
   }
 
-  async setRecordStatus(_zoneId: string, _recordId: string, _enabled: boolean): Promise<boolean> {
-    throw this.createError('UNSUPPORTED', '百度云 DNS 不支持启用/禁用记录');
+  async setRecordStatus(zoneId: string, recordId: string, enabled: boolean): Promise<boolean> {
+    try {
+      const status = enabled ? 'enable' : 'disable';
+      const query: Record<string, string> = { [status]: '', clientToken: generateClientToken() };
+      await this.request('PUT', `/v1/dns/zone/${encodeURIComponent(zoneId)}/record/${encodeURIComponent(recordId)}`, query);
+      return true;
+    } catch (err) {
+      throw this.wrapError(err);
+    }
   }
 
   async getLines(_zoneId?: string): Promise<LineListResult> {
@@ -304,7 +322,8 @@ export class BaiduProvider extends BaseProvider {
 
   async addZone(domain: string): Promise<Zone> {
     try {
-      await this.request('POST', '/v1/dns/zone', { clientToken: generateClientToken() }, { name: domain });
+      const query = { clientToken: generateClientToken(), name: domain };
+      await this.request('POST', '/v1/dns/zone', query);
       return this.normalizeZone({ id: domain, name: domain, status: 'active' });
     } catch (err) {
       throw this.wrapError(err);

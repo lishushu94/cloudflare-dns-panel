@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import {
   Box,
@@ -7,6 +8,7 @@ import {
   FormControlLabel,
   Switch,
   Collapse,
+  ListSubheader,
 } from '@mui/material';
 import { TTL_OPTIONS } from '@/utils/constants';
 import { validateDNSContent } from '@/utils/validators';
@@ -17,6 +19,7 @@ interface QuickAddFormProps {
   onSubmit: (data: any) => void;
   loading?: boolean;
   lines?: DnsLine[];
+  minTTL?: number;
 }
 
 interface FormData {
@@ -35,7 +38,7 @@ interface FormData {
  * 快速添加 DNS 记录表单
  * 根据当前供应商能力动态显示字段
  */
-export default function QuickAddForm({ onSubmit, loading, lines = [] }: QuickAddFormProps) {
+export default function QuickAddForm({ onSubmit, loading, lines = [], minTTL }: QuickAddFormProps) {
   const { selectedProvider, currentCapabilities } = useProvider();
 
   const {
@@ -44,6 +47,7 @@ export default function QuickAddForm({ onSubmit, loading, lines = [] }: QuickAdd
     watch,
     reset,
     control,
+    setValue,
     formState: { errors },
   } = useForm<FormData>({
     defaultValues: {
@@ -57,6 +61,7 @@ export default function QuickAddForm({ onSubmit, loading, lines = [] }: QuickAdd
   });
 
   const recordType = watch('type');
+  const currentTtl = watch('ttl');
   const showPriority = recordType === 'MX' || recordType === 'SRV';
 
   // 根据供应商能力决定显示哪些字段
@@ -78,6 +83,43 @@ export default function QuickAddForm({ onSubmit, loading, lines = [] }: QuickAdd
   const showLine = caps.supportsLine && lines.length > 0;
   const showRemark = caps.supportsRemark;
   const recordTypes = caps.recordTypes;
+
+  const ttlOptions = TTL_OPTIONS.filter((o) => {
+    if (selectedProvider !== 'cloudflare' && o.value === 1) return false;
+    if (typeof minTTL === 'number' && Number.isFinite(minTTL) && minTTL > 0) {
+      if (selectedProvider === 'cloudflare' && o.value === 1) return true;
+      return o.value >= minTTL;
+    }
+    return true;
+  });
+
+  const safeTtlOptions = ttlOptions.length > 0
+    ? ttlOptions
+    : (typeof minTTL === 'number' && Number.isFinite(minTTL) && minTTL > 0
+        ? [{ label: `${minTTL} 秒`, value: minTTL }]
+        : TTL_OPTIONS.filter(o => (selectedProvider === 'cloudflare' ? true : o.value !== 1)));
+
+  useEffect(() => {
+    const firstAllowedTtl = safeTtlOptions[0]?.value ?? TTL_OPTIONS[0].value;
+    if (!safeTtlOptions.some(o => o.value === currentTtl)) {
+      setValue('ttl', firstAllowedTtl, { shouldDirty: false, shouldTouch: false });
+    }
+  }, [currentTtl, setValue, safeTtlOptions]);
+
+  useEffect(() => {
+    if (recordTypes.length === 0) return;
+    if (!recordType || !recordTypes.includes(recordType)) {
+      setValue('type', recordTypes[0], { shouldDirty: false, shouldTouch: false });
+    }
+  }, [recordType, recordTypes, setValue]);
+
+  const hasLineCategories = lines.some(l => !!l.parentCode);
+  const groupedLines = lines.reduce<Record<string, DnsLine[]>>((acc, line) => {
+    const key = line.parentCode || '其他';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(line);
+    return acc;
+  }, {});
 
   const handleFormSubmit = (data: FormData) => {
     // 只提交当前供应商支持的字段
@@ -112,19 +154,36 @@ export default function QuickAddForm({ onSubmit, loading, lines = [] }: QuickAdd
     <Box component="form" onSubmit={handleSubmit(handleFormSubmit)} sx={{ mt: 2 }}>
       <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         {/* 记录类型 */}
-        <TextField
-          select
-          label="类型"
-          {...register('type', { required: true })}
-          sx={{ minWidth: 120 }}
-          size="small"
-        >
-          {recordTypes.map((type) => (
-            <MenuItem key={type} value={type}>
-              {type}
-            </MenuItem>
-          ))}
-        </TextField>
+        <Controller
+          name="type"
+          control={control}
+          rules={{ required: true }}
+          render={({ field }) => (
+            (() => {
+              const safeTypeValue =
+                typeof field.value === 'string' && recordTypes.includes(field.value)
+                  ? field.value
+                  : (recordTypes[0] ?? '');
+
+              return (
+            <TextField
+              select
+              label="类型"
+              {...field}
+              value={safeTypeValue}
+              sx={{ width: 100, minWidth: 100 }}
+              size="small"
+            >
+              {recordTypes.map((type) => (
+                <MenuItem key={type} value={type}>
+                  {type}
+                </MenuItem>
+              ))}
+            </TextField>
+              );
+            })()
+          )}
+        />
 
         {/* 名称 */}
         <TextField
@@ -155,19 +214,37 @@ export default function QuickAddForm({ onSubmit, loading, lines = [] }: QuickAdd
         />
 
         {/* TTL */}
-        <TextField
-          select
-          label="TTL"
-          {...register('ttl', { valueAsNumber: true })}
-          sx={{ minWidth: 100 }}
-          size="small"
-        >
-          {TTL_OPTIONS.map((option) => (
-            <MenuItem key={option.value} value={option.value}>
-              {option.label}
-            </MenuItem>
-          ))}
-        </TextField>
+        <Controller
+          name="ttl"
+          control={control}
+          render={({ field }) => (
+            (() => {
+              const firstAllowedTtl = safeTtlOptions[0]?.value ?? TTL_OPTIONS[0].value;
+              const safeTtlValue =
+                typeof field.value === 'number' && safeTtlOptions.some(o => o.value === field.value)
+                  ? field.value
+                  : firstAllowedTtl;
+
+              return (
+            <TextField
+              select
+              label="TTL"
+              {...field}
+              value={safeTtlValue}
+              onChange={(e) => field.onChange(Number(e.target.value))}
+              sx={{ minWidth: 100 }}
+              size="small"
+            >
+              {safeTtlOptions.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+              );
+            })()
+          )}
+        />
 
         {/* 优先级 (MX/SRV) */}
         {showPriority && (
@@ -205,11 +282,25 @@ export default function QuickAddForm({ onSubmit, loading, lines = [] }: QuickAdd
                 sx={{ minWidth: 120 }}
                 size="small"
               >
-                {lines.map((line) => (
-                  <MenuItem key={line.code} value={line.code}>
-                    {line.name}
-                  </MenuItem>
-                ))}
+                {hasLineCategories
+                  ? Object.keys(groupedLines)
+                      .sort((a, b) => a.localeCompare(b, 'zh-CN'))
+                      .flatMap((group) => [
+                        <ListSubheader key={`group-${group}`}>{group}</ListSubheader>,
+                        ...groupedLines[group]
+                          .slice()
+                          .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'zh-CN'))
+                          .map((line) => (
+                            <MenuItem key={`${group}-${line.code}`} value={line.code}>
+                              {line.name}
+                            </MenuItem>
+                          )),
+                      ])
+                  : lines.map((line) => (
+                      <MenuItem key={line.code} value={line.code}>
+                        {line.name}
+                      </MenuItem>
+                    ))}
               </TextField>
             )}
           />

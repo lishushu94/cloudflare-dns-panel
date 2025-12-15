@@ -52,8 +52,10 @@ interface AliyunRecord {
   Value: string;
   TTL: number;
   Line?: string;
-  Status?: 'ENABLE' | 'DISABLE';
+  Status?: string;
   Priority?: number;
+  Weight?: number;
+  UpdateTimestamp?: number;
   Remark?: string;
 }
 
@@ -71,7 +73,20 @@ interface AliyunAddDomainRecordResponse extends AliyunErrorResponse {
 interface AliyunDescribeDomainInfoResponse extends AliyunErrorResponse {
   DomainId?: string;
   DomainName?: string;
-  RecordLines?: { RecordLine?: string[] };
+  RecordLines?: {
+    RecordLine?: Array<
+      | string
+      | {
+          LineCode?: string;
+          LineName?: string;
+          LineDisplayName?: string;
+          FatherCode?: string;
+          FatherName?: string;
+          FatherDisplayName?: string;
+        }
+    >;
+  };
+  MinTtl?: number;
 }
 
 // ========== 能力配置 ==========
@@ -258,13 +273,18 @@ export class AliyunProvider extends BaseProvider {
     return `${rr}.${domainName}`;
   }
 
-  private fromAliyunStatus(status?: 'ENABLE' | 'DISABLE'): '0' | '1' | undefined {
+  private fromAliyunStatus(status?: string): '0' | '1' | undefined {
     if (!status) return undefined;
-    return status === 'ENABLE' ? '1' : '0';
+    const s = String(status).trim().toLowerCase();
+    if (s === 'enable' || s === 'enabled') return '1';
+    if (s === 'disable' || s === 'disabled') return '0';
+    if (s === '1') return '1';
+    if (s === '0') return '0';
+    return undefined;
   }
 
-  private toAliyunStatus(enabled: boolean): 'ENABLE' | 'DISABLE' {
-    return enabled ? 'ENABLE' : 'DISABLE';
+  private toAliyunStatus(enabled: boolean): 'Enable' | 'Disable' {
+    return enabled ? 'Enable' : 'Disable';
   }
 
   // ========== IDnsProvider 实现 ==========
@@ -331,18 +351,30 @@ export class AliyunProvider extends BaseProvider {
       const domainName = zone.name;
 
       const line = toAliyunLine(params?.line);
-      const status = params?.status ? (params.status === '1' ? 'ENABLE' : 'DISABLE') : undefined;
+      const status = params?.status ? (params.status === '1' ? 'Enable' : 'Disable') : undefined;
 
-      const resp = await this.request<AliyunDescribeDomainRecordsResponse>('DescribeDomainRecords', {
+      const hasAdvancedFilters = Boolean(
+        params?.subDomain || params?.type || params?.value || params?.line || params?.status
+      );
+
+      const query: Record<string, string | number | undefined> = {
         DomainName: domainName,
         PageNumber: params?.page || 1,
         PageSize: params?.pageSize || 20,
-        RRKeyWord: params?.keyword,
-        TypeKeyWord: params?.type,
-        ValueKeyWord: params?.value,
-        Line: line,
-        Status: status,
-      });
+      };
+
+      if (hasAdvancedFilters) {
+        query.SearchMode = 'ADVANCED';
+        query.RRKeyWord = params?.subDomain || params?.keyword;
+        query.ValueKeyWord = params?.value;
+        query.Type = params?.type;
+        query.Line = line;
+        query.Status = status;
+      } else if (params?.keyword) {
+        query.KeyWord = params.keyword;
+      }
+
+      const resp = await this.request<AliyunDescribeDomainRecordsResponse>('DescribeDomainRecords', query);
 
       const records: DnsRecord[] = (resp.DomainRecords?.Record || []).map(r =>
         this.normalizeRecord({
@@ -357,6 +389,7 @@ export class AliyunProvider extends BaseProvider {
           priority: r.Priority,
           status: this.fromAliyunStatus(r.Status),
           remark: r.Remark,
+          updatedAt: r.UpdateTimestamp ? new Date(Number(r.UpdateTimestamp)).toISOString() : undefined,
           meta: { raw: r },
         })
       );
@@ -484,6 +517,7 @@ export class AliyunProvider extends BaseProvider {
       const zone = await this.getZone(zoneIdOrName);
       const info = await this.request<AliyunDescribeDomainInfoResponse>('DescribeDomainInfo', {
         DomainName: zone.name,
+        NeedDetailAttributes: 'true',
       });
 
       const aliyunLines = info.RecordLines?.RecordLine || [];
@@ -493,9 +527,24 @@ export class AliyunProvider extends BaseProvider {
 
       const defaultLines = getDefaultLines();
       const lines: DnsLine[] = aliyunLines.map(a => {
-        const generic = fromAliyunLine(a) || a;
-        const found = defaultLines.find(d => d.code === generic);
-        return found || { code: generic, name: generic };
+        if (typeof a === 'string') {
+          const generic = fromAliyunLine(a) || a;
+          const found = defaultLines.find(d => d.code === generic);
+          return found || { code: generic, name: generic };
+        }
+
+        const rawCode = a.LineCode ? String(a.LineCode) : '';
+        const rawParent = a.FatherCode ? String(a.FatherCode) : undefined;
+
+        const code = fromAliyunLine(rawCode) || rawCode;
+        const parentCode = rawParent ? fromAliyunLine(rawParent) || rawParent : undefined;
+        const name =
+          (a.LineDisplayName ? String(a.LineDisplayName) : '') ||
+          (a.LineName ? String(a.LineName) : '') ||
+          defaultLines.find(d => d.code === code)?.name ||
+          code;
+
+        return { code, name, parentCode };
       });
 
       return { lines };
@@ -505,6 +554,19 @@ export class AliyunProvider extends BaseProvider {
   }
 
   async getMinTTL(_zoneId?: string): Promise<number> {
-    return 600; // 阿里云免费版最低 TTL
+    try {
+      if (!_zoneId) return 600;
+      const zone = await this.getZone(_zoneId);
+      const info = await this.request<AliyunDescribeDomainInfoResponse>('DescribeDomainInfo', {
+        DomainName: zone.name,
+        NeedDetailAttributes: 'true',
+      });
+
+      const min = info.MinTtl;
+      if (typeof min === 'number' && Number.isFinite(min) && min > 0) return min;
+      return 600;
+    } catch {
+      return 600;
+    }
   }
 }

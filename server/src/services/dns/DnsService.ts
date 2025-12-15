@@ -160,26 +160,33 @@ export class DnsService {
       return zoneIdOrName;
     }
 
-    // 对于需要 domainId 的提供商，通过域名名称查找
-    const all = await this.getZones(ctx, 1, 5000);
-    const match = all.zones.find(
-      z => z.name.toLowerCase() === zoneIdOrName.toLowerCase()
-    );
-
-    if (!match) {
-      throw new DnsProviderError(
-        {
-          provider: ctx.provider,
-          code: 'ZONE_NOT_FOUND',
-          message: `域名不存在: ${zoneIdOrName}`,
-          httpStatus: 404,
-          retriable: false,
-        },
-        undefined
-      );
+    // 若传入的是数字 ID（如 DNSPod DomainId），直接返回
+    const trimmed = String(zoneIdOrName || '').trim();
+    if (/^\d+$/.test(trimmed)) {
+      return trimmed;
     }
 
-    return match.id;
+    // 对于需要 domainId 的提供商，通过域名名称查找
+    const targetName = trimmed.toLowerCase();
+    const pageSize = 100;
+
+    for (let page = 1; page <= 200; page++) {
+      const result = await this.getZones(ctx, page, pageSize);
+      const match = result.zones.find(z => z.name.toLowerCase() === targetName);
+      if (match) return match.id;
+      if (page * pageSize >= result.total) break;
+    }
+
+    throw new DnsProviderError(
+      {
+        provider: ctx.provider,
+        code: 'ZONE_NOT_FOUND',
+        message: `域名不存在: ${zoneIdOrName}`,
+        httpStatus: 404,
+        retriable: false,
+      },
+      undefined
+    );
   }
 
   // ========== 公共 API ==========

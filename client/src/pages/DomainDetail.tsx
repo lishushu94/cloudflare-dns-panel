@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Box,
@@ -13,22 +13,19 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Breadcrumbs,
-  Link,
   Stack,
-  IconButton,
 } from '@mui/material';
 import {
   Add as AddIcon,
-  ArrowBack as ArrowBackIcon,
-  NavigateNext as NavigateNextIcon,
   Dns as DnsIcon,
   Language as LanguageIcon
 } from '@mui/icons-material';
-import { getDNSRecords, createDNSRecord, updateDNSRecord, deleteDNSRecord, getDNSLines, setDNSRecordStatus } from '@/services/dns';
+import { getDNSRecords, createDNSRecord, updateDNSRecord, deleteDNSRecord, getDNSLines, getDNSMinTTL, setDNSRecordStatus } from '@/services/dns';
+import { getDomainById } from '@/services/domains';
 import DNSRecordTable from '@/components/DNSRecordTable/DNSRecordTable';
 import QuickAddForm from '@/components/QuickAddForm/QuickAddForm';
 import { useProvider } from '@/contexts/ProviderContext';
+import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
 
 /**
  * 域名详情页面 - DNS 记录管理
@@ -36,32 +33,61 @@ import { useProvider } from '@/contexts/ProviderContext';
 export default function DomainDetail() {
   const { zoneId } = useParams<{ zoneId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
+  const { setLabel } = useBreadcrumb();
   const [showQuickAdd, setShowQuickAdd] = useState(false);
 
-  const { selectedCredentialId, selectedProvider, credentials, currentCapabilities } = useProvider();
-  const credentialId = typeof selectedCredentialId === 'number' ? selectedCredentialId : undefined;
+  const { selectedCredentialId, selectedProvider, credentials, getProviderCapabilities } = useProvider();
+  const credParam = new URLSearchParams(location.search).get('credentialId');
+  const parsedCredId = credParam ? parseInt(credParam, 10) : undefined;
+  const credFromQuery = typeof parsedCredId === 'number' && Number.isFinite(parsedCredId)
+    ? parsedCredId
+    : undefined;
+  const credentialId = typeof credFromQuery === 'number'
+    ? credFromQuery
+    : (typeof selectedCredentialId === 'number' ? selectedCredentialId : undefined);
+  const missingCredentialContext = selectedCredentialId === 'all' && typeof credFromQuery !== 'number';
+  const queriesEnabled = !!zoneId && !missingCredentialContext;
   const credentialProvider = credentialId
     ? credentials.find(c => c.id === credentialId)?.provider
     : selectedProvider;
+  const capabilities = getProviderCapabilities(credentialProvider);
   const supportsCustomHostnames = credentialProvider === 'cloudflare';
-  const supportsLine = currentCapabilities?.supportsLine ?? false;
-  const supportsStatus = currentCapabilities?.supportsStatus ?? false;
+  const supportsLine = capabilities?.supportsLine ?? false;
+  const supportsStatus = capabilities?.supportsStatus ?? false;
 
-  // 获取域名信息（这里假设从缓存或上一页传递，如果没有独立API，先简单处理）
-  // 实际项目中可能需要单独获取域名详情的API，或者从 location state 获取
+  // 获取域名信息
+  const { data: domainData } = useQuery({
+    queryKey: ['domain', zoneId, credentialId],
+    queryFn: () => getDomainById(zoneId!, credentialId),
+    enabled: queriesEnabled,
+  });
 
+  useEffect(() => {
+    if (domainData?.data?.domain?.name && zoneId) {
+      setLabel(zoneId, domainData.data.domain.name);
+    }
+  }, [domainData, zoneId, setLabel]);
+
+  // 获取DNS记录
   const { data, isLoading, error } = useQuery({
     queryKey: ['dns-records', zoneId, credentialId],
     queryFn: () => getDNSRecords(zoneId!, credentialId),
-    enabled: !!zoneId,
+    enabled: queriesEnabled,
   });
 
   // 获取线路列表
   const { data: linesData } = useQuery({
     queryKey: ['dns-lines', zoneId, credentialId],
     queryFn: () => getDNSLines(zoneId!, credentialId),
-    enabled: !!zoneId && supportsLine,
+    enabled: queriesEnabled && supportsLine,
+  });
+
+  const { data: minTtlData } = useQuery({
+    queryKey: ['dns-min-ttl', zoneId, credentialId],
+    queryFn: () => getDNSMinTTL(zoneId!, credentialId),
+    enabled: queriesEnabled,
   });
 
   const createMutation = useMutation({
@@ -94,6 +120,14 @@ export default function DomainDetail() {
     },
   });
 
+  if (missingCredentialContext) {
+    return (
+      <Alert severity="warning" sx={{ mt: 2 }}>
+        请从域名列表进入该页面，或在地址栏携带 credentialId 参数（例如：?credentialId=123）。
+      </Alert>
+    );
+  }
+
   if (isLoading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -112,70 +146,52 @@ export default function DomainDetail() {
 
   const records = data?.data?.records || [];
   const lines = linesData?.data?.lines || [];
+  const minTTL = minTtlData?.data?.minTTL;
+  const domainName = domainData?.data?.domain?.name || 'DNS 记录';
 
   return (
     <Box>
       {/* 顶部导航 */}
       <Box sx={{ mb: 4 }}>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-          <IconButton onClick={() => navigate('/')} size="small">
-            <ArrowBackIcon />
-          </IconButton>
-          <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />}>
-            <Link 
-              underline="hover" 
-              color="inherit" 
-              onClick={() => navigate('/')}
-              sx={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-            >
-              仪表盘
-            </Link>
-            <Typography color="text.primary" sx={{ display: 'flex', alignItems: 'center' }}>
-              DNS 管理
+        <Stack direction="row" justifyContent="space-between" alignItems="center">
+          <Box>
+            <Typography variant="h4" component="h1" fontWeight="bold">
+              {domainName}
             </Typography>
-          </Breadcrumbs>
+            <Typography variant="body1" color="text.secondary" sx={{ mt: 0.5 }}>
+              管理当前域名的解析记录
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={2}>
+            {supportsCustomHostnames && (
+              <Button
+                variant="outlined"
+                startIcon={<LanguageIcon />}
+                onClick={() => {
+                  navigate(credentialId ? `/hostnames/${zoneId}?credentialId=${credentialId}` : `/hostnames/${zoneId}`);
+                }}
+                sx={{ px: 3 }}
+              >
+                自定义主机名
+              </Button>
+            )}
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setShowQuickAdd(true)}
+              sx={{ px: 3 }}
+            >
+              添加记录
+            </Button>
+          </Stack>
         </Stack>
-
-                  <Stack direction="row" justifyContent="space-between" alignItems="center">
-                    <Box>
-                      <Typography variant="h4" component="h1" fontWeight="bold">
-                        DNS 记录
-                      </Typography>
-                      <Typography variant="body1" color="text.secondary" sx={{ mt: 0.5 }}>
-                        管理当前域名的解析记录
-                      </Typography>
-                    </Box>
-                    <Stack direction="row" spacing={2}>
-                      {supportsCustomHostnames && (
-                        <Button
-                          variant="outlined"
-                          startIcon={<LanguageIcon />}
-                          onClick={() => {
-                            console.log('点击自定义主机名按钮, zoneId:', zoneId);
-                            console.log('跳转路径:', `/hostnames/${zoneId}`);
-                            navigate(credentialId ? `/hostnames/${zoneId}?credentialId=${credentialId}` : `/hostnames/${zoneId}`);
-                          }}
-                          sx={{ px: 3 }}
-                        >
-                          自定义主机名
-                        </Button>
-                      )}
-                      <Button
-                        variant="contained"
-                        startIcon={<AddIcon />}
-                        onClick={() => setShowQuickAdd(true)}
-                        sx={{ px: 3 }}
-                      >
-                        添加记录
-                      </Button>
-                    </Stack>
-                  </Stack>
-                </Box>
+      </Box>
       <Card sx={{ border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.05)' }}>
         <CardContent sx={{ p: 0 }}>
           <DNSRecordTable
             records={records}
             lines={lines}
+            minTTL={minTTL}
             onUpdate={(recordId, params) => updateMutation.mutate({ recordId, params })}
             onDelete={(recordId) => {
               if (window.confirm('确定要删除这条 DNS 记录吗？')) {
@@ -208,6 +224,7 @@ export default function DomainDetail() {
             onSubmit={(params) => createMutation.mutate(params)}
             loading={createMutation.isPending}
             lines={lines}
+            minTTL={minTTL}
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>

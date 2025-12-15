@@ -51,14 +51,20 @@ export default function CustomHostnames() {
 
   const { selectedCredentialId } = useProvider();
   const credParam = new URLSearchParams(location.search).get('credentialId');
-  const credentialId = credParam
-    ? parseInt(credParam)
+  const parsedCredId = credParam ? parseInt(credParam, 10) : undefined;
+  const credFromQuery = typeof parsedCredId === 'number' && Number.isFinite(parsedCredId)
+    ? parsedCredId
+    : undefined;
+  const credentialId = typeof credFromQuery === 'number'
+    ? credFromQuery
     : (typeof selectedCredentialId === 'number' ? selectedCredentialId : undefined);
+  const missingCredentialContext = selectedCredentialId === 'all' && typeof credFromQuery !== 'number';
+  const queriesEnabled = !!zoneId && !missingCredentialContext;
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['custom-hostnames', zoneId, credentialId],
     queryFn: () => getCustomHostnames(zoneId!, credentialId),
-    enabled: !!zoneId,
+    enabled: queriesEnabled,
   });
 
   const createMutation = useMutation({
@@ -76,6 +82,14 @@ export default function CustomHostnames() {
       queryClient.invalidateQueries({ queryKey: ['custom-hostnames', zoneId, credentialId] });
     },
   });
+
+  if (missingCredentialContext) {
+    return (
+      <Alert severity="warning" sx={{ mt: 2 }}>
+        请从域名列表进入该页面，或在地址栏携带 credentialId 参数（例如：?credentialId=123）。
+      </Alert>
+    );
+  }
 
   const handleAdd = () => {
     if (hostname.trim()) {

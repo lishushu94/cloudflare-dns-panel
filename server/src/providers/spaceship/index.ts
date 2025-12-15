@@ -32,8 +32,98 @@ interface SpaceshipRecord {
   name: string;
   address?: string;
   content?: string;
+  exchange?: string;
+  preference?: number;
+  cname?: string;
+  value?: string;
+  pointer?: string;
+  nameserver?: string;
+  targetName?: string;
+  svcParams?: string;
+  svcPriority?: number;
+  associationData?: string;
+  aliasName?: string;
   ttl: number;
   priority?: number;
+}
+
+function resolveRecordValue(r: SpaceshipRecord): { value: string; priority?: number; idValue: string; idMx: number } {
+  const type = String(r.type || '').toUpperCase();
+  if (type === 'MX') {
+    const exchange = String(r.exchange ?? r.address ?? r.content ?? '').trim();
+    const mx = typeof r.preference === 'number' ? r.preference : (typeof r.priority === 'number' ? r.priority : 0);
+    return { value: exchange, priority: mx, idValue: exchange, idMx: mx };
+  }
+  if (type === 'CNAME') {
+    const v = String(r.cname ?? r.address ?? r.content ?? '').trim();
+    return { value: v, idValue: v, idMx: 0 };
+  }
+  if (type === 'TXT') {
+    const v = String(r.value ?? r.address ?? r.content ?? '').trim();
+    return { value: v, idValue: v, idMx: 0 };
+  }
+  if (type === 'PTR') {
+    const v = String(r.pointer ?? r.address ?? r.content ?? '').trim();
+    return { value: v, idValue: v, idMx: 0 };
+  }
+  if (type === 'NS') {
+    const v = String(r.nameserver ?? r.address ?? r.content ?? '').trim();
+    return { value: v, idValue: v, idMx: 0 };
+  }
+  if (type === 'HTTPS' || type === 'SVRB') {
+    const v = `${String(r.targetName ?? '')}${String(r.svcParams ?? '')}|${String(r.svcPriority ?? 0)}`;
+    return { value: v, idValue: v, idMx: 0 };
+  }
+  if (type === 'CAA') {
+    const v = String(r.value ?? r.address ?? r.content ?? '').trim();
+    return { value: v, idValue: v, idMx: 0 };
+  }
+  if (type === 'TLSA') {
+    const v = String(r.associationData ?? r.address ?? r.content ?? '').trim();
+    return { value: v, idValue: v, idMx: 0 };
+  }
+  if (type === 'ALIAS') {
+    const v = String(r.aliasName ?? r.address ?? r.content ?? '').trim();
+    return { value: v, idValue: v, idMx: 0 };
+  }
+
+  const v = String(r.address ?? r.content ?? '').trim();
+  return { value: v, idValue: v, idMx: 0 };
+}
+
+function buildRecordItem(type: string, name: string, value: string, ttl: number, priority?: number): Record<string, any> {
+  const t = String(type).toUpperCase();
+  const item: Record<string, any> = { type, name, ttl, address: value };
+  if (t === 'MX') {
+    item.exchange = value;
+    if (priority !== undefined) item.preference = priority;
+    return item;
+  }
+  if (t === 'CNAME') {
+    item.cname = value;
+    return item;
+  }
+  if (t === 'TXT') {
+    item.value = value;
+    return item;
+  }
+  if (t === 'PTR') {
+    item.pointer = value;
+    return item;
+  }
+  if (t === 'NS') {
+    item.nameserver = value;
+    return item;
+  }
+  if (t === 'ALIAS') {
+    item.aliasName = value;
+    return item;
+  }
+  if (t === 'TLSA') {
+    item.associationData = value;
+    return item;
+  }
+  return item;
 }
 
 export const SPACESHIP_CAPABILITIES: ProviderCapabilities = {
@@ -175,7 +265,7 @@ export class SpaceshipProvider extends BaseProvider {
         skip,
       });
       const list = resp.items || [];
-      const total = resp.totalCount || list.length;
+      const total = (resp as any).totalCount || (resp as any).total || list.length;
 
       const zones: Zone[] = list.map(d =>
         this.normalizeZone({
@@ -208,20 +298,19 @@ export class SpaceshipProvider extends BaseProvider {
         query
       );
       const list = resp.items || [];
-      const total = resp.totalCount || list.length;
+      const total = (resp as any).totalCount || (resp as any).total || list.length;
 
       const records: DnsRecord[] = list.map(r => {
-        const value = r.address || r.content || '';
-        // API returns empty string for root records; use it directly in ID for consistency
+        const resolved = resolveRecordValue(r);
         return this.normalizeRecord({
-          id: this.recordId(r.type, r.name, value, r.priority),
+          id: this.recordId(r.type, r.name, resolved.idValue, resolved.idMx),
           zoneId: zoneId,
           zoneName: zoneId,
           name: r.name || '@',  // Display as @ for root
           type: r.type,
-          value: value,
+          value: resolved.value,
           ttl: r.ttl || 3600,
-          priority: r.priority,
+          priority: resolved.priority,
         });
       });
 
@@ -250,13 +339,7 @@ export class SpaceshipProvider extends BaseProvider {
   async createRecord(zoneId: string, params: CreateRecordParams): Promise<DnsRecord> {
     try {
       const recordName = params.name === '@' ? '' : params.name;
-      const item: Record<string, any> = {
-        type: params.type,
-        name: recordName,
-        address: params.value,
-        ttl: params.ttl || 3600,
-      };
-      if (params.priority !== undefined) item.priority = params.priority;
+      const item = buildRecordItem(params.type, recordName, params.value, params.ttl || 3600, params.priority);
 
       await this.request('PUT', `/dns/records/${zoneId}`, undefined, {
         force: true,
@@ -284,11 +367,26 @@ export class SpaceshipProvider extends BaseProvider {
   async deleteRecord(zoneId: string, recordId: string): Promise<boolean> {
     try {
       const parsed = this.parseRecordId(recordId);
-      await this.request('DELETE', `/dns/records/${zoneId}`, {
-        type: parsed.type,
-        name: parsed.name,
-        address: parsed.address,
-      });
+
+      const t = String(parsed.type).toUpperCase();
+      let body: any;
+      if (t === 'MX') {
+        body = [{ type: parsed.type, name: parsed.name, exchange: parsed.address, preference: parsed.mx ?? 0 }];
+      } else if (t === 'TXT') {
+        body = [{ type: parsed.type, name: parsed.name, value: parsed.address }];
+      } else if (t === 'CNAME') {
+        body = [{ type: parsed.type, name: parsed.name, cname: parsed.address }];
+      } else if (t === 'ALIAS') {
+        body = [{ type: parsed.type, name: parsed.name, aliasName: parsed.address }];
+      } else if (t === 'PTR') {
+        body = [{ type: parsed.type, name: parsed.name, pointer: parsed.address }];
+      } else if (t === 'NS') {
+        body = [{ type: parsed.type, name: parsed.name, nameserver: parsed.address }];
+      } else {
+        body = [{ type: parsed.type, name: parsed.name, address: parsed.address }];
+      }
+
+      await this.request('DELETE', `/dns/records/${zoneId}`, undefined, body);
       return true;
     } catch (err) {
       throw this.wrapError(err);

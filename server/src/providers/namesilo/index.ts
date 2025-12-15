@@ -41,6 +41,16 @@ interface NamesiloRecord {
   distance?: number;
 }
 
+function toRelativeName(host: string, zoneName: string): string {
+  const h = String(host || '').trim();
+  const z = String(zoneName || '').trim();
+  if (!h) return '@';
+  if (!z) return h;
+  if (h === z) return '@';
+  if (h.endsWith(`.${z}`)) return h.slice(0, -(z.length + 1)) || '@';
+  return h;
+}
+
 export const NAMESILO_CAPABILITIES: ProviderCapabilities = {
   provider: ProviderType.NAMESILO,
   name: 'NameSilo',
@@ -176,7 +186,7 @@ export class NamesiloProvider extends BaseProvider {
           id: r.record_id,
           zoneId: zoneId,
           zoneName: zoneId,
-          name: r.host || '@',
+          name: toRelativeName(r.host, zoneId),
           type: r.type,
           value: r.value,
           ttl: r.ttl || 7200,
@@ -227,6 +237,7 @@ export class NamesiloProvider extends BaseProvider {
       const query: Record<string, any> = {
         domain: zoneId,
         rrid: recordId,
+        rrtype: params.type,
         rrhost: params.name === '@' ? '' : params.name,
         rrvalue: params.value,
         rrttl: params.ttl || 7200,

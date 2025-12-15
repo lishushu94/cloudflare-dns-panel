@@ -48,20 +48,36 @@ interface HuoshanRecord {
   Enable?: boolean;
   Remark?: string;
   Preheat?: boolean;
+  UpdatedAt?: string;
 }
 
 interface HuoshanRecordsResponse {
   Total?: number;
+  TotalCount?: number;
   Records?: HuoshanRecord[];
 }
 
 interface HuoshanLine {
-  Line: string;
+  Value: string;
   Name: string;
+  Level?: number;
+  FatherValue?: string;
 }
 
 interface HuoshanLinesResponse {
+  TotalCount?: number;
   Lines?: HuoshanLine[];
+}
+
+interface HuoshanCustomerLine {
+  Line: string;
+  NameCN?: string;
+  NameEN?: string;
+}
+
+interface HuoshanCustomLinesResponse {
+  TotalCount?: number;
+  CustomerLines?: HuoshanCustomerLine[];
 }
 
 // 默认线路
@@ -73,6 +89,38 @@ const HUOSHAN_DEFAULT_LINES: DnsLine[] = [
   { code: 'edu', name: '教育网' },
   { code: 'oversea', name: '海外' },
 ];
+
+const TRADE_CODE_INFO: Record<string, { level: number; ttl: number }> = {
+  free_inner: { level: 1, ttl: 600 },
+  professional_inner: { level: 2, ttl: 300 },
+  enterprise_inner: { level: 3, ttl: 60 },
+  ultimate_inner: { level: 4, ttl: 1 },
+  ultimate_exclusive_inner: { level: 5, ttl: 1 },
+};
+
+function getTradeInfo(tradeCode?: string): { level: number; ttl: number } {
+  const key = tradeCode && TRADE_CODE_INFO[tradeCode] ? tradeCode : 'free_inner';
+  return TRADE_CODE_INFO[key];
+}
+
+function splitMxValue(type: string, value: string): { value: string; priority?: number } {
+  if (String(type).toUpperCase() !== 'MX') return { value };
+  const raw = String(value ?? '').trim();
+  const parts = raw.split(/\s+/);
+  if (parts.length >= 2) {
+    const p = Number(parts[0]);
+    if (Number.isFinite(p)) {
+      return { priority: p, value: parts.slice(1).join(' ') };
+    }
+  }
+  return { value: raw };
+}
+
+function joinMxValue(type: string, value: string, priority?: number): string {
+  if (String(type).toUpperCase() !== 'MX') return value;
+  if (priority === undefined || priority === null || !Number.isFinite(Number(priority))) return value;
+  return `${Number(priority)} ${value}`;
+}
 
 export const HUOSHAN_CAPABILITIES: ProviderCapabilities = {
   provider: ProviderType.HUOSHAN,
@@ -242,34 +290,48 @@ export class HuoshanProvider extends BaseProvider {
     try {
       const zone = await this.getZone(zoneId);
       const query: Record<string, any> = {
-        ZID: zoneId,
+        ZID: parseInt(zoneId, 10),
         PageNumber: params?.page || 1,
         PageSize: params?.pageSize || 20,
+        SearchOrder: 'desc',
       };
-      if (params?.keyword) query.Host = params.keyword;
-      if (params?.type) query.RecordType = params.type;
-      if (params?.value) query.Value = params.value;
-      if (params?.line) query.Line = params.line;
+
+      const useExact = Boolean(params?.subDomain || params?.type || params?.line || params?.value);
+      if (useExact) {
+        query.SearchMode = 'exact';
+        if (params?.subDomain) query.Host = params.subDomain;
+        if (params?.type) query.Type = params.type;
+        if (params?.value) query.Value = params.value;
+        if (params?.line) query.Line = params.line;
+      } else if (params?.keyword) {
+        query.Host = params.keyword;
+      }
 
       const resp = await this.request<HuoshanRecordsResponse>('GET', 'ListRecords', query);
 
       const records: DnsRecord[] = (resp.Records || []).map(r =>
-        this.normalizeRecord({
-          id: r.RecordID,
-          zoneId: zoneId,
-          zoneName: zone.name,
-          name: r.Host || '@',
-          type: r.Type,
-          value: r.Value,
-          ttl: r.TTL,
-          line: r.Line || 'default',
-          weight: r.Weight,
-          status: r.Enable === false ? '0' : '1',
-          remark: r.Remark,
-        })
+        (() => {
+          const mx = splitMxValue(r.Type, r.Value);
+          return this.normalizeRecord({
+            id: r.RecordID,
+            zoneId: zoneId,
+            zoneName: zone.name,
+            name: r.Host || '@',
+            type: r.Type,
+            value: mx.value,
+            ttl: r.TTL,
+            line: r.Line || 'default',
+            weight: r.Weight,
+            priority: mx.priority,
+            status: r.Enable === false ? '0' : '1',
+            remark: r.Remark,
+            updatedAt: r.UpdatedAt,
+          });
+        })()
       );
 
-      return { total: resp.Total || records.length, records };
+      const total = (resp as any).TotalCount ?? resp.Total ?? records.length;
+      return { total, records };
     } catch (err) {
       throw this.wrapError(err);
     }
@@ -280,18 +342,22 @@ export class HuoshanProvider extends BaseProvider {
       const zone = await this.getZone(zoneId);
       const resp = await this.request<HuoshanRecord>('GET', 'QueryRecord', { RecordID: recordId });
 
+      const mx = splitMxValue(resp.Type, resp.Value);
+
       return this.normalizeRecord({
         id: resp.RecordID,
         zoneId: zoneId,
         zoneName: zone.name,
         name: resp.Host || '@',
         type: resp.Type,
-        value: resp.Value,
+        value: mx.value,
         ttl: resp.TTL,
         line: resp.Line || 'default',
         weight: resp.Weight,
+        priority: mx.priority,
         status: resp.Enable === false ? '0' : '1',
         remark: resp.Remark,
+        updatedAt: resp.UpdatedAt,
       });
     } catch (err) {
       throw this.wrapError(err);
@@ -300,18 +366,16 @@ export class HuoshanProvider extends BaseProvider {
 
   async createRecord(zoneId: string, params: CreateRecordParams): Promise<DnsRecord> {
     try {
+      const value = joinMxValue(params.type, params.value, params.priority);
       const body: Record<string, any> = {
         ZID: parseInt(zoneId, 10),
         Host: params.name === '@' ? '@' : params.name,
         Type: params.type,
-        Value: params.value,
+        Value: value,
         TTL: params.ttl || 600,
         Line: params.line || 'default',
       };
       if (params.weight !== undefined) body.Weight = params.weight;
-      if (params.priority !== undefined && (params.type === 'MX' || params.type === 'SRV')) {
-        // 火山引擎 MX 记录的优先级可能在 Value 中
-      }
       if (params.remark) body.Remark = params.remark;
 
       const resp = await this.request<{ RecordID: string }>('POST', 'CreateRecord', undefined, body);
@@ -323,11 +387,12 @@ export class HuoshanProvider extends BaseProvider {
 
   async updateRecord(zoneId: string, recordId: string, params: UpdateRecordParams): Promise<DnsRecord> {
     try {
+      const value = joinMxValue(params.type, params.value, params.priority);
       const body: Record<string, any> = {
         RecordID: recordId,
         Host: params.name === '@' ? '@' : params.name,
         Type: params.type,
-        Value: params.value,
+        Value: value,
         TTL: params.ttl || 600,
         Line: params.line || 'default',
       };
@@ -366,8 +431,43 @@ export class HuoshanProvider extends BaseProvider {
     try {
       if (!zoneId) return { lines: HUOSHAN_DEFAULT_LINES };
 
-      const resp = await this.request<HuoshanLinesResponse>('GET', 'ListLines', { ZID: zoneId });
-      const lines: DnsLine[] = (resp.Lines || []).map(l => ({ code: l.Line, name: l.Name }));
+      const zone = await this.getZone(zoneId);
+      const tradeCode = zone.meta?.TradeCode as string | undefined;
+      const { level } = getTradeInfo(tradeCode);
+
+      const base = new Map<string, DnsLine>();
+      base.set('default', { code: 'default', name: '默认' });
+
+      const resp = await this.request<HuoshanLinesResponse>('GET', 'ListLines');
+      for (const row of resp.Lines || []) {
+        const code = String(row.Value || '').trim();
+        if (!code || code === 'default') continue;
+        const rowLevel = typeof row.Level === 'number' ? row.Level : undefined;
+        if (rowLevel !== undefined && rowLevel > level) continue;
+        base.set(code, {
+          code,
+          name: String(row.Name || code),
+          parentCode: row.FatherValue ? String(row.FatherValue) : undefined,
+        });
+      }
+
+      // 自定义线路
+      try {
+        const custom = await this.request<HuoshanCustomLinesResponse>('GET', 'ListCustomLines');
+        if ((custom.TotalCount || 0) > 0) {
+          base.set('N.customer_lines', { code: 'N.customer_lines', name: '自定义线路' });
+          for (const row of custom.CustomerLines || []) {
+            const code = String(row.Line || '').trim();
+            if (!code) continue;
+            const name = String(row.NameCN || row.NameEN || code);
+            base.set(code, { code, name, parentCode: 'N.customer_lines' });
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      const lines = Array.from(base.values());
       return { lines: lines.length > 0 ? lines : HUOSHAN_DEFAULT_LINES };
     } catch {
       return { lines: HUOSHAN_DEFAULT_LINES };
@@ -381,14 +481,7 @@ export class HuoshanProvider extends BaseProvider {
       try {
         const zone = await this.getZone(zoneId);
         const tradeCode = zone.meta?.TradeCode as string | undefined;
-        if (tradeCode) {
-          if (tradeCode.includes('enterprise') || tradeCode.includes('flagship') || tradeCode.includes('premium')) {
-            return 1;
-          }
-          if (tradeCode.includes('professional')) {
-            return 300;
-          }
-        }
+        return getTradeInfo(tradeCode).ttl;
       } catch {
         // ignore
       }

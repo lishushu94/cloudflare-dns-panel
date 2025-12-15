@@ -19,6 +19,7 @@ import {
   NavigateNext as NavigateNextIcon
 } from '@mui/icons-material';
 import Sidebar from './Sidebar';
+import { useBreadcrumb } from '@/contexts/BreadcrumbContext';
 
 const drawerWidth = 260;
 
@@ -26,6 +27,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
+  const { labels } = useBreadcrumb();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -144,7 +146,8 @@ export default function Layout() {
             {pathnames.map((value, index) => {
               const last = index === pathnames.length - 1;
               const to = `/${pathnames.slice(0, index + 1).join('/')}`;
-              const name = breadcrumbNameMap[value] || value;
+              // 优先使用 context 中的 label，然后是 map 中的，最后是 value
+              const name = labels[value] || breadcrumbNameMap[value] || value;
 
               return last ? (
                 <Typography color="text.primary" key={to} sx={{ fontWeight: 700 }}>

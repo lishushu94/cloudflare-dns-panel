@@ -10,6 +10,8 @@ import CustomHostnames from './pages/CustomHostnames';
 import Logs from './pages/Logs';
 import Settings from './pages/Settings';
 
+import { BreadcrumbProvider } from './contexts/BreadcrumbContext';
+
 /**
  * 受保护的路由组件
  */
@@ -18,7 +20,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return <Navigate to="/login" replace />;
   }
   return (
-    <ProviderProvider>{children}</ProviderProvider>
+    <ProviderProvider>
+      <BreadcrumbProvider>{children}</BreadcrumbProvider>
+    </ProviderProvider>
   );
 }
 

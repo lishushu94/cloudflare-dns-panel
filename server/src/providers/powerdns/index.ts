@@ -44,6 +44,14 @@ interface PowerDnsRRSetRecord {
   disabled: boolean;
 }
 
+function toRelativeName(fqdn: string, zoneName: string): string {
+  const name = fqdn.endsWith('.') ? fqdn.slice(0, -1) : fqdn;
+  const zone = zoneName.endsWith('.') ? zoneName.slice(0, -1) : zoneName;
+  if (name === zone) return '@';
+  if (name.endsWith(`.${zone}`)) return name.slice(0, -(zone.length + 1)) || '@';
+  return name;
+}
+
 export const POWERDNS_CAPABILITIES: ProviderCapabilities = {
   provider: ProviderType.POWERDNS,
   name: 'PowerDNS',
@@ -219,9 +227,20 @@ export class PowerdnsProvider extends BaseProvider {
 
         rrset.records.forEach((r, idx) => {
           let value = r.content;
+          let priority: number | undefined;
           // TXT 记录去除引号
           if (rrset.type === 'TXT' && value.startsWith('"') && value.endsWith('"')) {
             value = value.slice(1, -1);
+          }
+          if (rrset.type === 'MX') {
+            const parts = String(value).trim().split(/\s+/);
+            if (parts.length >= 2) {
+              const p = Number(parts[0]);
+              if (Number.isFinite(p)) {
+                priority = p;
+                value = parts.slice(1).join(' ');
+              }
+            }
           }
 
           records.push(
@@ -229,10 +248,11 @@ export class PowerdnsProvider extends BaseProvider {
               id: this.recordIdEncode(rrset.name, rrset.type, idx),
               zoneId: z.id,
               zoneName: zoneName,
-              name: this.removeTrailingDot(rrset.name),
+              name: toRelativeName(rrset.name, z.name),
               type: rrset.type,
               value: value,
               ttl: rrset.ttl,
+              priority,
               status: r.disabled ? '0' : '1',
               remark: rrset.comments?.[0]?.content,
             })
@@ -260,7 +280,8 @@ export class PowerdnsProvider extends BaseProvider {
   async createRecord(zoneId: string, params: CreateRecordParams): Promise<DnsRecord> {
     try {
       const zoneIdWithDot = this.ensureTrailingDot(zoneId);
-      const zoneName = this.removeTrailingDot(zoneId);
+      const zone = await this.getZone(zoneId);
+      const zoneName = zone.name;
       const rrsetName = this.ensureTrailingDot(
         params.name === '@' ? zoneName : `${params.name}.${zoneName}`
       );
@@ -279,12 +300,15 @@ export class PowerdnsProvider extends BaseProvider {
         content = `${params.priority} ${content}`;
       }
 
+      const current = await this.request<PowerDnsZone>('GET', `/api/v1/servers/${this.serverId}/zones/${zoneIdWithDot}`);
+      const existing = (current.rrsets || []).find(r => r.name === rrsetName && r.type === params.type);
+
       const rrset: PowerDnsRRSet = {
         name: rrsetName,
         type: params.type,
-        ttl: params.ttl || 3600,
+        ttl: params.ttl || existing?.ttl || 3600,
         changetype: 'REPLACE',
-        records: [{ content, disabled: false }],
+        records: [...(existing?.records || []), { content, disabled: false }],
       };
       if (params.remark) {
         rrset.comments = [{ content: params.remark }];
@@ -295,7 +319,7 @@ export class PowerdnsProvider extends BaseProvider {
       // 返回新创建的记录
       const result = await this.getRecords(zoneId);
       const created = result.records.find(
-        r => r.name === this.removeTrailingDot(rrsetName) && r.type === params.type
+        r => r.name === (params.name === '@' ? '@' : params.name) && r.type === params.type && r.value === params.value
       );
       if (!created) throw this.createError('CREATE_FAILED', '创建记录失败');
       return created;
@@ -306,9 +330,26 @@ export class PowerdnsProvider extends BaseProvider {
 
   async updateRecord(zoneId: string, recordId: string, params: UpdateRecordParams): Promise<DnsRecord> {
     try {
-      // PowerDNS 使用 REPLACE 来更新整个 RRSet
-      const { rrsetName } = this.recordIdDecode(recordId);
+      const decoded = this.recordIdDecode(recordId);
+      const zone = await this.getZone(zoneId);
       const zoneIdWithDot = this.ensureTrailingDot(zoneId);
+      const zoneFetch = await this.request<PowerDnsZone>('GET', `/api/v1/servers/${this.serverId}/zones/${zoneIdWithDot}`);
+
+      const targetName = this.ensureTrailingDot(
+        params.name === '@' ? zone.name : `${params.name}.${zone.name}`
+      );
+      const targetType = params.type;
+
+      if (targetName !== decoded.rrsetName || targetType !== decoded.rrsetType) {
+        await this.deleteRecord(zoneId, recordId);
+        return await this.createRecord(zoneId, params);
+      }
+
+      const rrset = (zoneFetch.rrsets || []).find(r => r.name === decoded.rrsetName && r.type === decoded.rrsetType);
+      if (!rrset) throw this.createError('NOT_FOUND', 'RRSet 不存在，请刷新后重试', { httpStatus: 404 });
+      if (!rrset.records || decoded.recordIndex < 0 || decoded.recordIndex >= rrset.records.length) {
+        throw this.createError('NOT_FOUND', '记录不存在，请刷新后重试', { httpStatus: 404 });
+      }
 
       let content = params.value;
       if (params.type === 'TXT' && !content.startsWith('"')) {
@@ -321,19 +362,24 @@ export class PowerdnsProvider extends BaseProvider {
         content = `${params.priority} ${content}`;
       }
 
-      const rrset: PowerDnsRRSet = {
-        name: rrsetName,
-        type: params.type,
-        ttl: params.ttl || 3600,
+      const newRecords = rrset.records.map((r, idx) =>
+        idx === decoded.recordIndex ? { ...r, content } : r
+      );
+
+      const patch: PowerDnsRRSet = {
+        name: rrset.name,
+        type: rrset.type,
+        ttl: params.ttl || rrset.ttl || 3600,
         changetype: 'REPLACE',
-        records: [{ content, disabled: false }],
+        records: newRecords,
       };
-      if (params.remark) {
-        rrset.comments = [{ content: params.remark }];
+      if (params.remark !== undefined) {
+        patch.comments = params.remark ? [{ content: params.remark }] : [];
+      } else if (rrset.comments) {
+        patch.comments = rrset.comments;
       }
 
-      await this.request('PATCH', `/api/v1/servers/${this.serverId}/zones/${zoneIdWithDot}`, { rrsets: [rrset] });
-
+      await this.request('PATCH', `/api/v1/servers/${this.serverId}/zones/${zoneIdWithDot}`, { rrsets: [patch] });
       return await this.getRecord(zoneId, recordId);
     } catch (err) {
       throw this.wrapError(err);
@@ -342,18 +388,32 @@ export class PowerdnsProvider extends BaseProvider {
 
   async deleteRecord(zoneId: string, recordId: string): Promise<boolean> {
     try {
-      const { rrsetName, rrsetType } = this.recordIdDecode(recordId);
+      const decoded = this.recordIdDecode(recordId);
       const zoneIdWithDot = this.ensureTrailingDot(zoneId);
+      const zoneFetch = await this.request<PowerDnsZone>('GET', `/api/v1/servers/${this.serverId}/zones/${zoneIdWithDot}`);
+      const rrset = (zoneFetch.rrsets || []).find(r => r.name === decoded.rrsetName && r.type === decoded.rrsetType);
+      if (!rrset) throw this.createError('NOT_FOUND', 'RRSet 不存在，请刷新后重试', { httpStatus: 404 });
+      if (!rrset.records || decoded.recordIndex < 0 || decoded.recordIndex >= rrset.records.length) {
+        throw this.createError('NOT_FOUND', '记录不存在，请刷新后重试', { httpStatus: 404 });
+      }
 
-      const rrset: PowerDnsRRSet = {
-        name: rrsetName,
-        type: rrsetType,
-        ttl: 0,
-        changetype: 'DELETE',
-        records: [],
-      };
+      const remaining = rrset.records.filter((_, idx) => idx !== decoded.recordIndex);
+      const rrsets: PowerDnsRRSet[] = [];
 
-      await this.request('PATCH', `/api/v1/servers/${this.serverId}/zones/${zoneIdWithDot}`, { rrsets: [rrset] });
+      if (remaining.length === 0) {
+        rrsets.push({ name: rrset.name, type: rrset.type, ttl: rrset.ttl, changetype: 'DELETE', records: [] });
+      } else {
+        rrsets.push({
+          name: rrset.name,
+          type: rrset.type,
+          ttl: rrset.ttl,
+          changetype: 'REPLACE',
+          records: remaining,
+          comments: rrset.comments,
+        });
+      }
+
+      await this.request('PATCH', `/api/v1/servers/${this.serverId}/zones/${zoneIdWithDot}`, { rrsets });
       return true;
     } catch (err) {
       throw this.wrapError(err);
@@ -362,24 +422,29 @@ export class PowerdnsProvider extends BaseProvider {
 
   async setRecordStatus(zoneId: string, recordId: string, enabled: boolean): Promise<boolean> {
     try {
-      const record = await this.getRecord(zoneId, recordId);
-      const { rrsetName, rrsetType } = this.recordIdDecode(recordId);
+      const decoded = this.recordIdDecode(recordId);
       const zoneIdWithDot = this.ensureTrailingDot(zoneId);
-
-      let content = record.value;
-      if (record.type === 'TXT' && !content.startsWith('"')) {
-        content = `"${content}"`;
+      const zoneFetch = await this.request<PowerDnsZone>('GET', `/api/v1/servers/${this.serverId}/zones/${zoneIdWithDot}`);
+      const rrset = (zoneFetch.rrsets || []).find(r => r.name === decoded.rrsetName && r.type === decoded.rrsetType);
+      if (!rrset) throw this.createError('NOT_FOUND', 'RRSet 不存在，请刷新后重试', { httpStatus: 404 });
+      if (!rrset.records || decoded.recordIndex < 0 || decoded.recordIndex >= rrset.records.length) {
+        throw this.createError('NOT_FOUND', '记录不存在，请刷新后重试', { httpStatus: 404 });
       }
 
-      const rrset: PowerDnsRRSet = {
-        name: rrsetName,
-        type: rrsetType,
-        ttl: record.ttl,
+      const newRecords = rrset.records.map((r, idx) =>
+        idx === decoded.recordIndex ? { ...r, disabled: !enabled } : r
+      );
+
+      const patch: PowerDnsRRSet = {
+        name: rrset.name,
+        type: rrset.type,
+        ttl: rrset.ttl,
         changetype: 'REPLACE',
-        records: [{ content, disabled: !enabled }],
+        records: newRecords,
+        comments: rrset.comments,
       };
 
-      await this.request('PATCH', `/api/v1/servers/${this.serverId}/zones/${zoneIdWithDot}`, { rrsets: [rrset] });
+      await this.request('PATCH', `/api/v1/servers/${this.serverId}/zones/${zoneIdWithDot}`, { rrsets: [patch] });
       return true;
     } catch (err) {
       throw this.wrapError(err);
