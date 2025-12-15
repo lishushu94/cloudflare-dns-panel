@@ -95,11 +95,22 @@ export default function DNSRecordTable({
     },
   };
 
-  // 固定操作列样式 - 只在有内容被遮挡时显示阴影
-  const stickyActionCellSx = {
+  // 固定操作列样式 - 表头 (背景色 #F8FAFC 来自 theme MuiTableCell.head)
+  const stickyHeaderCellSx = {
     position: 'sticky',
     right: 0,
-    bgcolor: 'inherit',
+    bgcolor: '#F8FAFC',
+    ...(hasOverflow && {
+      boxShadow: '-4px 0 8px -4px rgba(0,0,0,0.15)',
+    }),
+    zIndex: 2,
+  };
+
+  // 固定操作列样式 - 数据行 (背景色 #F1F5F9 来自 theme background.default，与 DnsManagement 容器一致)
+  const stickyBodyCellSx = {
+    position: 'sticky',
+    right: 0,
+    bgcolor: '#F1F5F9',
     ...(hasOverflow && {
       boxShadow: '-4px 0 8px -4px rgba(0,0,0,0.15)',
     }),
@@ -221,7 +232,7 @@ export default function DNSRecordTable({
             {showLine && <TableCell>线路</TableCell>}
             {showRemark && <TableCell>备注</TableCell>}
             {showStatus && <TableCell align="center">状态</TableCell>}
-            <TableCell align="right" sx={stickyActionCellSx}>操作</TableCell>
+            <TableCell align="right" sx={stickyHeaderCellSx}>操作</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -376,7 +387,7 @@ export default function DNSRecordTable({
                      </TableCell>
                    )}
                    {showStatus && <TableCell />}
-                   <TableCell align="right" sx={stickyActionCellSx}>
+                   <TableCell align="right" sx={stickyBodyCellSx}>
                     <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
                       <IconButton size="small" onClick={() => handleSaveClick(record.id)} color="success">
                         <CheckIcon />
@@ -453,7 +464,7 @@ export default function DNSRecordTable({
                     </Tooltip>
                   </TableCell>
                 )}
-                <TableCell align="right" sx={stickyActionCellSx}>
+                <TableCell align="right" sx={stickyBodyCellSx}>
                   <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
                     <Tooltip title="编辑记录">
                       <IconButton
