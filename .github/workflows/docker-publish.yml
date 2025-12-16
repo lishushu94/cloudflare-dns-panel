@@ -7,7 +7,7 @@ on:
 
 env:
   # Image name: a3180623/cloudflare-dns-panel
-  IMAGE_NAME: a3180623/cloudflare-dns-panel
+  IMAGE_NAME: a3180623/dns-panel
 
 jobs:
   build-and-push:
