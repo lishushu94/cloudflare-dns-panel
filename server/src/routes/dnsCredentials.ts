@@ -17,6 +17,37 @@ import { dnsService } from '../services/dns/DnsService';
 const router = Router();
 const prisma = new PrismaClient();
 
+const normalizeSecretsMeta = (secrets: any) => {
+  if (!secrets || typeof secrets !== 'object') {
+    return { secretsUpdated: false, secretsKeys: [] as string[] };
+  }
+
+  return {
+    secretsUpdated: true,
+    secretsKeys: Object.keys(secrets).sort(),
+  };
+};
+
+const buildCredentialLogValue = (value: {
+  id?: number;
+  name?: string;
+  provider?: string;
+  accountId?: any;
+  isDefault?: boolean;
+  secrets?: any;
+}) => {
+  const meta = normalizeSecretsMeta(value.secrets);
+  return {
+    id: value.id,
+    name: value.name,
+    provider: value.provider,
+    accountId: value.accountId,
+    isDefault: value.isDefault,
+    secretsUpdated: meta.secretsUpdated,
+    secretsKeys: meta.secretsKeys,
+  };
+};
+
 router.use(authenticateToken);
 
 /**
@@ -74,26 +105,40 @@ router.get('/', async (req, res) => {
  * 创建新凭证
  */
 router.post('/', async (req, res) => {
-  try {
-    const userId = (req as AuthRequest).user!.id;
-    const { name, provider, secrets, accountId } = req.body;
+  const userId = (req as AuthRequest).user!.id;
+  const { name, provider, secrets, accountId } = req.body || {};
 
+  try {
     if (!name || !provider || !secrets) {
+      await createLog({
+        userId,
+        action: 'CREATE',
+        resourceType: 'CREDENTIAL',
+        status: 'FAILED',
+        ipAddress: req.ip,
+        newValue: JSON.stringify(buildCredentialLogValue({ name, provider, accountId, secrets })),
+        errorMessage: '缺少必需参数: name, provider, secrets',
+      });
       return errorResponse(res, '缺少必需参数: name, provider, secrets', 400);
     }
 
-    // 验证提供商是否支持
     if (!ProviderRegistry.isSupported(provider as ProviderType)) {
+      await createLog({
+        userId,
+        action: 'CREATE',
+        resourceType: 'CREDENTIAL',
+        status: 'FAILED',
+        ipAddress: req.ip,
+        newValue: JSON.stringify(buildCredentialLogValue({ name, provider, accountId, secrets })),
+        errorMessage: `不支持的提供商: ${provider}`,
+      });
       return errorResponse(res, `不支持的提供商: ${provider}`, 400);
     }
 
-    // 不再强制验证凭证，实际使用时会自然暴露问题
-
-    // 加密 secrets
     const encryptedSecrets = encrypt(JSON.stringify(secrets));
 
-    // 检查是否是第一个凭证
     const existingCount = await prisma.dnsCredential.count({ where: { userId } });
+    const isDefault = existingCount === 0;
 
     const credential = await prisma.dnsCredential.create({
       data: {
@@ -102,7 +147,7 @@ router.post('/', async (req, res) => {
         provider,
         secrets: encryptedSecrets,
         accountId,
-        isDefault: existingCount === 0,
+        isDefault,
       },
       select: {
         id: true,
@@ -121,7 +166,14 @@ router.post('/', async (req, res) => {
       resourceType: 'CREDENTIAL',
       status: 'SUCCESS',
       ipAddress: req.ip,
-      newValue: JSON.stringify({ name, provider, accountId }),
+      newValue: JSON.stringify(buildCredentialLogValue({
+        id: credential.id,
+        name: credential.name,
+        provider: credential.provider,
+        accountId: credential.accountId,
+        isDefault: credential.isDefault,
+        secrets,
+      })),
     });
 
     const caps = ProviderRegistry.getCapabilities(provider as ProviderType);
@@ -129,6 +181,15 @@ router.post('/', async (req, res) => {
       credential: { ...credential, providerName: caps?.name || provider },
     }, '凭证创建成功', 201);
   } catch (error: any) {
+    await createLog({
+      userId,
+      action: 'CREATE',
+      resourceType: 'CREDENTIAL',
+      status: 'FAILED',
+      ipAddress: req.ip,
+      newValue: JSON.stringify(buildCredentialLogValue({ name, provider, accountId, secrets })),
+      errorMessage: error?.message || '创建凭证失败',
+    });
     return errorResponse(res, error.message || '创建凭证失败', 500);
   }
 });
@@ -138,29 +199,36 @@ router.post('/', async (req, res) => {
  * 更新凭证
  */
 router.put('/:id', async (req, res) => {
-  try {
-    const userId = (req as AuthRequest).user!.id;
-    const credentialId = parseInt(req.params.id);
-    const { name, secrets, accountId, isDefault } = req.body;
+  const userId = (req as AuthRequest).user!.id;
+  const credentialId = parseInt(req.params.id);
+  const { name, secrets, accountId, isDefault } = req.body || {};
 
+  try {
     const existing = await prisma.dnsCredential.findFirst({
       where: { id: credentialId, userId },
     });
 
     if (!existing) {
+      await createLog({
+        userId,
+        action: 'UPDATE',
+        resourceType: 'CREDENTIAL',
+        status: 'FAILED',
+        ipAddress: req.ip,
+        oldValue: JSON.stringify(buildCredentialLogValue({ id: credentialId })),
+        newValue: JSON.stringify(buildCredentialLogValue({ id: credentialId, name, accountId, secrets, isDefault })),
+        errorMessage: '凭证不存在',
+      });
       return errorResponse(res, '凭证不存在', 404);
     }
 
     const updateData: any = {};
     if (name) updateData.name = name;
     if (accountId !== undefined) updateData.accountId = accountId;
-
-    // 更新 secrets 时不再强制验证
     if (secrets) {
       updateData.secrets = encrypt(JSON.stringify(secrets));
     }
 
-    // 设置默认凭证
     if (isDefault === true) {
       await prisma.dnsCredential.updateMany({
         where: { userId, isDefault: true },
@@ -183,9 +251,22 @@ router.put('/:id', async (req, res) => {
       },
     });
 
-    // 如果更新了 secrets，清除 DnsService 缓存的 Provider 实例
     if (secrets) {
       dnsService.clearAllCache();
+    }
+
+    const changes: Record<string, any> = {};
+    if (name !== undefined && existing.name !== credential.name) {
+      changes.name = { from: existing.name, to: credential.name };
+    }
+    if (accountId !== undefined && existing.accountId !== credential.accountId) {
+      changes.accountId = { from: existing.accountId, to: credential.accountId };
+    }
+    if (isDefault === true && existing.isDefault !== credential.isDefault) {
+      changes.isDefault = { from: existing.isDefault, to: credential.isDefault };
+    }
+    if (secrets) {
+      changes.secrets = { updated: true, keys: normalizeSecretsMeta(secrets).secretsKeys };
     }
 
     await createLog({
@@ -194,8 +275,24 @@ router.put('/:id', async (req, res) => {
       resourceType: 'CREDENTIAL',
       status: 'SUCCESS',
       ipAddress: req.ip,
-      oldValue: JSON.stringify({ name: existing.name }),
-      newValue: JSON.stringify({ name: credential.name }),
+      oldValue: JSON.stringify({ credential: buildCredentialLogValue({
+        id: existing.id,
+        name: existing.name,
+        provider: existing.provider,
+        accountId: existing.accountId,
+        isDefault: existing.isDefault,
+      }) }),
+      newValue: JSON.stringify({
+        credential: buildCredentialLogValue({
+          id: credential.id,
+          name: credential.name,
+          provider: credential.provider,
+          accountId: credential.accountId,
+          isDefault: credential.isDefault,
+          secrets,
+        }),
+        changes,
+      }),
     });
 
     const caps = ProviderRegistry.getCapabilities(credential.provider as ProviderType);
@@ -203,6 +300,16 @@ router.put('/:id', async (req, res) => {
       credential: { ...credential, providerName: caps?.name || credential.provider },
     }, '凭证更新成功');
   } catch (error: any) {
+    await createLog({
+      userId,
+      action: 'UPDATE',
+      resourceType: 'CREDENTIAL',
+      status: 'FAILED',
+      ipAddress: req.ip,
+      oldValue: JSON.stringify(buildCredentialLogValue({ id: credentialId })),
+      newValue: JSON.stringify(buildCredentialLogValue({ id: credentialId, name, accountId, secrets, isDefault })),
+      errorMessage: error?.message || '更新凭证失败',
+    });
     return errorResponse(res, error.message || '更新凭证失败', 500);
   }
 });
@@ -212,21 +319,29 @@ router.put('/:id', async (req, res) => {
  * 删除凭证
  */
 router.delete('/:id', async (req, res) => {
-  try {
-    const userId = (req as AuthRequest).user!.id;
-    const credentialId = parseInt(req.params.id);
+  const userId = (req as AuthRequest).user!.id;
+  const credentialId = parseInt(req.params.id);
 
+  try {
     const existing = await prisma.dnsCredential.findFirst({
       where: { id: credentialId, userId },
     });
 
     if (!existing) {
+      await createLog({
+        userId,
+        action: 'DELETE',
+        resourceType: 'CREDENTIAL',
+        status: 'FAILED',
+        ipAddress: req.ip,
+        oldValue: JSON.stringify(buildCredentialLogValue({ id: credentialId })),
+        errorMessage: '凭证不存在',
+      });
       return errorResponse(res, '凭证不存在', 404);
     }
 
     await prisma.dnsCredential.delete({ where: { id: credentialId } });
 
-    // 如果删除的是默认凭证，设置新的默认
     if (existing.isDefault) {
       const first = await prisma.dnsCredential.findFirst({
         where: { userId },
@@ -246,11 +361,26 @@ router.delete('/:id', async (req, res) => {
       resourceType: 'CREDENTIAL',
       status: 'SUCCESS',
       ipAddress: req.ip,
-      oldValue: JSON.stringify({ name: existing.name, provider: existing.provider }),
+      oldValue: JSON.stringify(buildCredentialLogValue({
+        id: existing.id,
+        name: existing.name,
+        provider: existing.provider,
+        accountId: existing.accountId,
+        isDefault: existing.isDefault,
+      })),
     });
 
     return successResponse(res, null, '凭证删除成功');
   } catch (error: any) {
+    await createLog({
+      userId,
+      action: 'DELETE',
+      resourceType: 'CREDENTIAL',
+      status: 'FAILED',
+      ipAddress: req.ip,
+      oldValue: JSON.stringify(buildCredentialLogValue({ id: credentialId })),
+      errorMessage: error?.message || '删除凭证失败',
+    });
     return errorResponse(res, error.message || '删除凭证失败', 500);
   }
 });
