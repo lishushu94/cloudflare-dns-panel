@@ -44,6 +44,7 @@ const PROVIDER_CONFIG: Record<ProviderType, { icon: React.ReactNode; color: stri
   cloudflare: { icon: <CloudflareIcon />, color: '#f38020', name: 'Cloudflare' },
   aliyun: { icon: <AliyunIcon />, color: '#ff6a00', name: '阿里云' },
   dnspod: { icon: <DnspodIcon />, color: '#0052d9', name: '腾讯云' },
+  dnspod_token: { icon: <DnspodIcon />, color: '#0052d9', name: '腾讯云' },
   huawei: { icon: <HuaweiIcon />, color: '#e60012', name: '华为云' },
   baidu: { icon: <BaiduIcon />, color: '#2932e1', name: '百度云' },
   west: { icon: <WestIcon />, color: '#1e88e5', name: '西部数码' },

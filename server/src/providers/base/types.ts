@@ -10,6 +10,7 @@ export enum ProviderType {
   CLOUDFLARE = 'cloudflare',
   ALIYUN = 'aliyun',
   DNSPOD = 'dnspod',
+  DNSPOD_TOKEN = 'dnspod_token',
   HUAWEI = 'huawei',
   BAIDU = 'baidu',
   WEST = 'west',

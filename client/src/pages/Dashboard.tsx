@@ -63,6 +63,7 @@ const PROVIDER_CONFIG: Record<ProviderType, { icon: React.ReactNode; color: stri
   cloudflare: { icon: <CloudflareIcon />, color: '#f38020', name: 'Cloudflare' },
   aliyun: { icon: <AliyunIcon />, color: '#ff6a00', name: '阿里云' },
   dnspod: { icon: <DnspodIcon />, color: '#0052d9', name: '腾讯云' },
+  dnspod_token: { icon: <DnspodIcon />, color: '#0052d9', name: '腾讯云' },
   huawei: { icon: <HuaweiIcon />, color: '#e60012', name: '华为云' },
   baidu: { icon: <BaiduIcon />, color: '#2932e1', name: '百度云' },
   west: { icon: <WestIcon />, color: '#1e88e5', name: '西部数码' },
@@ -151,7 +152,16 @@ export default function Dashboard() {
         return { data: { domains: [] } };
       }
 
-      if (selectedCredentialId === 'all') {
+      const safeSelectedCredentialId: number | 'all' =
+        selectedCredentialId === 'all'
+          ? 'all'
+          : typeof selectedCredentialId === 'number' && currentProviderCredentials.some(c => c.id === selectedCredentialId)
+            ? selectedCredentialId
+            : currentProviderCredentials.length === 1
+              ? currentProviderCredentials[0].id
+              : 'all';
+
+      if (safeSelectedCredentialId === 'all') {
         const results = await Promise.allSettled(
           currentProviderCredentials.map(cred => getDomains(cred.id))
         );
@@ -174,7 +184,7 @@ export default function Dashboard() {
         return { data: { domains: allDomains } };
       }
 
-      return getDomains(selectedCredentialId);
+      return getDomains(safeSelectedCredentialId);
     },
     enabled: isAllScope
       ? credentials.length > 0
@@ -198,10 +208,19 @@ export default function Dashboard() {
     }
 
     if (selectedProvider) {
-      if (selectedCredentialId === 'all') {
+      const safeSelectedCredentialId: number | 'all' =
+        selectedCredentialId === 'all'
+          ? 'all'
+          : typeof selectedCredentialId === 'number' && currentProviderCredentials.some(c => c.id === selectedCredentialId)
+            ? selectedCredentialId
+            : currentProviderCredentials.length === 1
+              ? currentProviderCredentials[0].id
+              : 'all';
+
+      if (safeSelectedCredentialId === 'all') {
         await Promise.all(currentProviderCredentials.map(c => refreshDomains(c.id)));
-      } else if (selectedCredentialId) {
-        await refreshDomains(selectedCredentialId);
+      } else {
+        await refreshDomains(safeSelectedCredentialId);
       }
       refetch();
     }

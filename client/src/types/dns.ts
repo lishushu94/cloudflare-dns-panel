@@ -2,6 +2,7 @@ export type ProviderType =
   | 'cloudflare'
   | 'aliyun'
   | 'dnspod'
+  | 'dnspod_token'
   | 'huawei'
   | 'baidu'
   | 'west'

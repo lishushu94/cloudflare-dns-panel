@@ -47,11 +47,16 @@ export default function ProviderAccountTabs({
     return null;
   }
 
-  const handleChange = (_event: SyntheticEvent, newValue: number | 'all') => {
+  const handleChange = (_event: SyntheticEvent, newValue: any) => {
+    const normalized: number | 'all' =
+      typeof newValue === 'string' && newValue !== 'all'
+        ? (Number.isFinite(parseInt(newValue, 10)) ? parseInt(newValue, 10) : 'all')
+        : newValue;
+
     if (onChange) {
-      onChange(newValue);
+      onChange(normalized);
     } else {
-      selectCredential(newValue);
+      selectCredential(normalized);
     }
   };
 

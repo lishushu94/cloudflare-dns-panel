@@ -199,7 +199,19 @@ router.post('/zones/:zoneId/records', authenticateToken, dnsLimiter, async (req:
       domain: record.zoneName,
       recordName: record.name,
       recordType: record.type,
-      newValue: JSON.stringify({ value: record.value, ttl: record.ttl, line: record.line }),
+      newValue: JSON.stringify({
+        id: record.id,
+        name: record.name,
+        type: record.type,
+        value: record.value,
+        ttl: record.ttl,
+        line: record.line,
+        weight: record.weight,
+        priority: record.priority,
+        remark: record.remark,
+        status: record.status,
+        proxied: record.proxied,
+      }),
       status: 'SUCCESS',
       ipAddress: getClientIp(req),
     });
@@ -256,7 +268,19 @@ router.put('/zones/:zoneId/records/:recordId', authenticateToken, dnsLimiter, as
       recordName: record.name,
       recordType: record.type,
       oldValue: oldRecord ? JSON.stringify(oldRecord) : undefined,
-      newValue: JSON.stringify({ value: record.value, ttl: record.ttl, line: record.line }),
+      newValue: JSON.stringify({
+        id: record.id,
+        name: record.name,
+        type: record.type,
+        value: record.value,
+        ttl: record.ttl,
+        line: record.line,
+        weight: record.weight,
+        priority: record.priority,
+        remark: record.remark,
+        status: record.status,
+        proxied: record.proxied,
+      }),
       status: 'SUCCESS',
       ipAddress: getClientIp(req),
     });
@@ -323,6 +347,7 @@ router.delete('/zones/:zoneId/records/:recordId', authenticateToken, dnsLimiter,
  * 设置记录状态（启用/禁用）
  */
 router.put('/zones/:zoneId/records/:recordId/status', authenticateToken, dnsLimiter, async (req: AuthRequest, res) => {
+  let recordForLog: any;
   try {
     const ctx = await getServiceContext(req.user!.id, req.query.credentialId as string);
     const { zoneId, recordId } = req.params;
@@ -337,10 +362,40 @@ router.put('/zones/:zoneId/records/:recordId/status', authenticateToken, dnsLimi
       return errorResponse(res, '当前提供商不支持启用/禁用记录', 400);
     }
 
+    try {
+      recordForLog = await dnsService.getRecord(ctx, zoneId, recordId);
+    } catch {}
+
     await dnsService.setRecordStatus(ctx, zoneId, recordId, enabled);
+
+    await LoggerService.createLog({
+      userId: req.user!.id,
+      action: 'UPDATE',
+      resourceType: 'DNS',
+      domain: recordForLog?.zoneName,
+      recordName: recordForLog?.name,
+      recordType: recordForLog?.type,
+      oldValue: recordForLog
+        ? JSON.stringify({ id: recordForLog.id, status: recordForLog.status, enabled: recordForLog.status === '1' })
+        : undefined,
+      newValue: JSON.stringify({ recordId, enabled, status: enabled ? '1' : '0' }),
+      status: 'SUCCESS',
+      ipAddress: getClientIp(req),
+    });
 
     return successResponse(res, { enabled }, `记录已${enabled ? '启用' : '禁用'}`);
   } catch (error: any) {
+    await LoggerService.createLog({
+      userId: req.user!.id,
+      action: 'UPDATE',
+      resourceType: 'DNS',
+      domain: recordForLog?.zoneName,
+      recordName: recordForLog?.name,
+      recordType: recordForLog?.type,
+      status: 'FAILED',
+      errorMessage: error.message,
+      ipAddress: getClientIp(req),
+    });
     return handleProviderError(res, error);
   }
 });
@@ -385,8 +440,28 @@ router.post('/refresh', authenticateToken, async (req: AuthRequest, res) => {
 
     dnsService.clearCache(ctx, 'all', zoneId);
 
+    await LoggerService.createLog({
+      userId: req.user!.id,
+      action: 'UPDATE',
+      resourceType: 'DNS',
+      domain: zoneId ? String(zoneId) : undefined,
+      recordName: 'refresh_cache',
+      status: 'SUCCESS',
+      ipAddress: getClientIp(req),
+      newValue: JSON.stringify({ zoneId: zoneId ? String(zoneId) : undefined }),
+    });
+
     return successResponse(res, null, '缓存已刷新');
   } catch (error: any) {
+    await LoggerService.createLog({
+      userId: req.user!.id,
+      action: 'UPDATE',
+      resourceType: 'DNS',
+      recordName: 'refresh_cache',
+      status: 'FAILED',
+      errorMessage: error.message,
+      ipAddress: getClientIp(req),
+    });
     return handleProviderError(res, error);
   }
 });

@@ -23,6 +23,10 @@ const ProviderContext = createContext<ProviderContextType | undefined>(undefined
 const STORAGE_KEY_PROVIDER = 'dns_selected_provider';
 const STORAGE_KEY_CREDENTIAL = 'dns_selected_credential';
 
+const normalizeProviderType = (provider: ProviderType): ProviderType => {
+  return provider === 'dnspod_token' ? 'dnspod' : provider;
+};
+
 export function ProviderProvider({ children }: { children: ReactNode }) {
   const [providers, setProviders] = useState<ProviderConfig[]>([]);
   const [credentials, setCredentials] = useState<DnsCredential[]>([]);
@@ -49,11 +53,12 @@ export function ProviderProvider({ children }: { children: ReactNode }) {
 
       // 初始化选中状态
       if (credentialList.length > 0) {
-        const savedProvider = localStorage.getItem(STORAGE_KEY_PROVIDER) as ProviderType | null;
+        const savedProviderRaw = localStorage.getItem(STORAGE_KEY_PROVIDER) as ProviderType | null;
+        const savedProvider = savedProviderRaw ? normalizeProviderType(savedProviderRaw) : null;
         const savedCredential = localStorage.getItem(STORAGE_KEY_CREDENTIAL);
 
         // 获取有凭证的提供商列表
-        const providersWithCreds = [...new Set(credentialList.map(c => c.provider))];
+        const providersWithCreds = [...new Set(credentialList.map(c => normalizeProviderType(c.provider)))];
 
         const providerToSelect = (savedProvider && providersWithCreds.includes(savedProvider))
           ? savedProvider
@@ -65,7 +70,7 @@ export function ProviderProvider({ children }: { children: ReactNode }) {
         }
 
         const credsForProvider = providerToSelect
-          ? credentialList.filter(c => c.provider === providerToSelect)
+          ? credentialList.filter(c => normalizeProviderType(c.provider) === providerToSelect)
           : [];
 
         let nextCredential: number | 'all' | null = null;
@@ -112,36 +117,40 @@ export function ProviderProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const credsForProvider = credentials.filter(c => c.provider === provider);
-    const nextCredential = credsForProvider.length > 1
+    const normalizedProvider = normalizeProviderType(provider);
+
+    const credsForProvider = credentials.filter(c => normalizeProviderType(c.provider) === normalizedProvider);
+    const nextCredential: number | 'all' = credsForProvider.length > 1
       ? 'all'
       : credsForProvider.length === 1
         ? credsForProvider[0].id
-        : null;
+        : 'all';
 
-    setSelectedProvider(provider);
+    setSelectedProvider(normalizedProvider);
     setSelectedCredentialId(nextCredential);
-    localStorage.setItem(STORAGE_KEY_PROVIDER, provider);
-    if (nextCredential !== null) {
-      localStorage.setItem(STORAGE_KEY_CREDENTIAL, String(nextCredential));
-    }
+    localStorage.setItem(STORAGE_KEY_PROVIDER, normalizedProvider);
+    localStorage.setItem(STORAGE_KEY_CREDENTIAL, String(nextCredential));
   }, [credentials]);
 
   const selectCredential = useCallback((id: number | 'all') => {
-    setSelectedCredentialId(id);
-    localStorage.setItem(STORAGE_KEY_CREDENTIAL, String(id));
+    const normalized = typeof id === 'string' && id !== 'all' ? parseInt(id, 10) : id;
+    setSelectedCredentialId(normalized as any);
+    localStorage.setItem(STORAGE_KEY_CREDENTIAL, String(normalized));
   }, []);
 
   const getCredentialsByProvider = useCallback((provider: ProviderType) => {
-    return credentials.filter(c => c.provider === provider);
+    const p = normalizeProviderType(provider);
+    return credentials.filter(c => normalizeProviderType(c.provider) === p);
   }, [credentials]);
 
   const getCredentialCountByProvider = useCallback((provider: ProviderType) => {
-    return credentials.filter(c => c.provider === provider).length;
+    const p = normalizeProviderType(provider);
+    return credentials.filter(c => normalizeProviderType(c.provider) === p).length;
   }, [credentials]);
 
   const getProviderCapabilities = useCallback((provider?: ProviderType | null): ProviderCapabilities | null => {
-    const p = provider ?? selectedProvider;
+    const raw = provider ?? selectedProvider;
+    const p = raw ? normalizeProviderType(raw) : null;
     if (!p) return null;
     const config = providers.find(c => c.type === p);
     return config?.capabilities ?? null;

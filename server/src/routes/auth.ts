@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import { AuthService } from '../services/auth';
+import { LoggerService } from '../services/logger';
 import { successResponse, errorResponse } from '../utils/response';
 import { authenticateToken } from '../middleware/auth';
 import { loginLimiter } from '../middleware/rateLimit';
+import { getClientIp } from '../middleware/logger';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -80,8 +82,29 @@ router.put('/password', authenticateToken, async (req: AuthRequest, res) => {
 
     await AuthService.updatePassword(req.user!.id, oldPassword, newPassword);
 
+    await LoggerService.createLog({
+      userId: req.user!.id,
+      action: 'UPDATE',
+      resourceType: 'USER',
+      recordName: req.user?.username,
+      status: 'SUCCESS',
+      ipAddress: getClientIp(req),
+      newValue: JSON.stringify({ passwordUpdated: true }),
+    });
+
     return successResponse(res, null, '密码修改成功');
   } catch (error: any) {
+    try {
+      await LoggerService.createLog({
+        userId: req.user!.id,
+        action: 'UPDATE',
+        resourceType: 'USER',
+        recordName: req.user?.username,
+        status: 'FAILED',
+        ipAddress: getClientIp(req),
+        errorMessage: error?.message || '密码修改失败',
+      });
+    } catch {}
     return errorResponse(res, error.message, 400);
   }
 });
@@ -100,8 +123,29 @@ router.put('/cf-token', authenticateToken, async (req: AuthRequest, res) => {
 
     await AuthService.updateCfToken(req.user!.id, cfApiToken);
 
+    await LoggerService.createLog({
+      userId: req.user!.id,
+      action: 'UPDATE',
+      resourceType: 'USER',
+      recordName: req.user?.username,
+      status: 'SUCCESS',
+      ipAddress: getClientIp(req),
+      newValue: JSON.stringify({ cfTokenUpdated: true }),
+    });
+
     return successResponse(res, null, 'API Token 更新成功');
   } catch (error: any) {
+    try {
+      await LoggerService.createLog({
+        userId: req.user!.id,
+        action: 'UPDATE',
+        resourceType: 'USER',
+        recordName: req.user?.username,
+        status: 'FAILED',
+        ipAddress: getClientIp(req),
+        errorMessage: error?.message || 'API Token 更新失败',
+      });
+    } catch {}
     return errorResponse(res, error.message, 400);
   }
 });

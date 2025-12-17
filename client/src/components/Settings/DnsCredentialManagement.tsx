@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import {
   Box,
   Card,
@@ -18,8 +18,7 @@ import {
   Alert,
   Stack,
   CircularProgress,
-  Tooltip,
-  alpha
+  Tooltip
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -65,14 +64,26 @@ const PROVIDER_CREDENTIAL_GUIDE: Record<ProviderType, { title: string; steps: st
     link: 'https://ram.console.aliyun.com/manage/ak'
   },
   dnspod: {
-    title: '腾讯云 API 密钥获取方式',
+    title: '腾讯云（两种方式）',
+    steps: [
+      '方式一：使用腾讯云 API3.0（SecretId/SecretKey）',
+      '登录 DNSPod 控制台 → 账号中心 → 密钥管理 → 创建 API 密钥',
+      '复制 SecretId 和 SecretKey 并填写到前两个输入框',
+      '方式二：使用 DNSPod Token（传统）',
+      '登录 DNSPod 控制台 → 账号中心 → 密钥管理 → 创建 DNSPod Token（传统 API Token）',
+      '将 ID 与 Token 分别填写到下方的 ID 与 Token 输入框'
+    ],
+    link: 'https://console.dnspod.cn/account/token/apikey'
+  },
+  dnspod_token: {
+    title: 'DNSPod Token 获取方式',
     steps: [
       '登录 DNSPod 控制台',
       '进入 账号中心 → 密钥管理',
-      '创建新的 API 密钥',
-      '复制 SecretId 和 SecretKey'
+      '创建 DNSPod Token（传统 API Token）',
+      '分别复制 Token ID 与 Token（两者组合为 ID,Token）'
     ],
-    link: 'https://console.dnspod.cn/account/token/apikey'
+    link: 'https://console.dnspod.cn/account/token'
   },
   huawei: {
     title: '华为云 AccessKey 获取方式',
@@ -288,6 +299,35 @@ export default function DnsCredentialManagement() {
         if (!secretsToSubmit[key]) delete secretsToSubmit[key];
       });
 
+      if (selectedProviderType === 'dnspod') {
+        const secretId = secretsToSubmit.secretId;
+        const secretKey = secretsToSubmit.secretKey;
+        const tokenId = secretsToSubmit.tokenId;
+        const token = secretsToSubmit.token;
+
+        const hasTc3Any = Boolean(secretId || secretKey);
+        const hasTc3Pair = Boolean(secretId && secretKey);
+        const hasLegacyAny = Boolean(tokenId || token);
+        const hasLegacyPair = Boolean(tokenId && token);
+
+        if (!editingCredential) {
+          if (!hasTc3Pair && !hasLegacyPair) {
+            setSubmitError('请填写 SecretId/SecretKey 或 DNSPod Token（ID + Token），两种方式二选一');
+            return;
+          }
+        }
+
+        if (hasTc3Any && !hasTc3Pair) {
+          setSubmitError('SecretId/SecretKey 需要同时填写');
+          return;
+        }
+
+        if (hasLegacyAny && !hasLegacyPair) {
+          setSubmitError('DNSPod Token 的 ID 与 Token 需要同时填写');
+          return;
+        }
+      }
+
       if (editingCredential) {
         await updateDnsCredential(editingCredential.id, {
           name: data.name,
@@ -491,19 +531,28 @@ export default function DnsCredentialManagement() {
                     )}
 
                     {selectedProviderConfig.authFields.map((field) => (
-                      <TextField
-                        key={field.key}
-                        label={field.label}
-                        type={field.type}
-                        fullWidth
-                        size="small"
-                        placeholder={field.placeholder}
-                        {...register(`secrets.${field.key}`, {
-                          required: editingCredential ? false : (field.required && '此项必填')
-                        })}
-                        error={!!errors.secrets?.[field.key]}
-                        helperText={errors.secrets?.[field.key]?.message || field.helpText}
-                      />
+                      <Fragment key={field.key}>
+                        {selectedProviderType === 'dnspod' && field.key === 'tokenId' && (
+                          <Divider textAlign="left" sx={{ my: 1.5, opacity: 0.8 }}>
+                            <Typography variant="caption" color="text.secondary">
+                              DNSPod Token 认证
+                            </Typography>
+                          </Divider>
+                        )}
+
+                        <TextField
+                          label={field.label}
+                          type={field.type}
+                          fullWidth
+                          size="small"
+                          placeholder={field.placeholder}
+                          {...register(`secrets.${field.key}`, {
+                            required: editingCredential ? false : (field.required && '此项必填')
+                          })}
+                          error={!!errors.secrets?.[field.key]}
+                          helperText={errors.secrets?.[field.key]?.message || field.helpText}
+                        />
+                      </Fragment>
                     ))}
                   </Stack>
                 </Box>

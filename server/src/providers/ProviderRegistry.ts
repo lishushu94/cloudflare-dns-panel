@@ -7,6 +7,7 @@ import { decrypt } from '../utils/encryption';
 import { CloudflareProvider, CLOUDFLARE_CAPABILITIES } from './cloudflare';
 import { AliyunProvider, ALIYUN_CAPABILITIES } from './aliyun';
 import { DnspodProvider, DNSPOD_CAPABILITIES } from './dnspod';
+import { DnspodTokenProvider, DNSPOD_TOKEN_CAPABILITIES } from './dnspod_token';
 import { HuaweiProvider, HUAWEI_CAPABILITIES } from './huawei';
 import { BaiduProvider, BAIDU_CAPABILITIES } from './baidu';
 import { WestProvider, WEST_CAPABILITIES } from './west';
@@ -57,6 +58,7 @@ export class ProviderRegistry {
     [ProviderType.CLOUDFLARE]: CloudflareProvider,
     [ProviderType.ALIYUN]: AliyunProvider,
     [ProviderType.DNSPOD]: DnspodProvider,
+    [ProviderType.DNSPOD_TOKEN]: DnspodTokenProvider,
     [ProviderType.HUAWEI]: HuaweiProvider,
     [ProviderType.BAIDU]: BaiduProvider,
     [ProviderType.WEST]: WestProvider,
@@ -75,6 +77,7 @@ export class ProviderRegistry {
     [ProviderType.CLOUDFLARE]: CLOUDFLARE_CAPABILITIES,
     [ProviderType.ALIYUN]: ALIYUN_CAPABILITIES,
     [ProviderType.DNSPOD]: DNSPOD_CAPABILITIES,
+    [ProviderType.DNSPOD_TOKEN]: DNSPOD_TOKEN_CAPABILITIES,
     [ProviderType.HUAWEI]: HUAWEI_CAPABILITIES,
     [ProviderType.BAIDU]: BAIDU_CAPABILITIES,
     [ProviderType.WEST]: WEST_CAPABILITIES,

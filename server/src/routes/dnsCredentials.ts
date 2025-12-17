@@ -425,8 +425,32 @@ router.post('/:id/verify', async (req, res) => {
     });
 
     const isValid = await providerInstance.checkAuth();
+
+    await createLog({
+      userId,
+      action: 'UPDATE',
+      resourceType: 'CREDENTIAL',
+      domain: credential.provider,
+      recordName: credential.name,
+      status: isValid ? 'SUCCESS' : 'FAILED',
+      ipAddress: req.ip,
+      newValue: JSON.stringify({ id: credential.id, provider: credential.provider, valid: isValid }),
+      errorMessage: isValid ? undefined : '凭证无效',
+    });
+
     return successResponse(res, { valid: isValid }, isValid ? '凭证验证成功' : '凭证验证失败');
   } catch (error: any) {
+    try {
+      await createLog({
+        userId: (req as AuthRequest).user!.id,
+        action: 'UPDATE',
+        resourceType: 'CREDENTIAL',
+        recordName: req.params.id,
+        status: 'FAILED',
+        ipAddress: req.ip,
+        errorMessage: error?.message || '凭证验证失败',
+      });
+    } catch {}
     return successResponse(res, { valid: false, error: error.message }, '凭证验证失败');
   }
 });

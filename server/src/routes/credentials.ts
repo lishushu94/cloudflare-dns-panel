@@ -51,6 +51,15 @@ router.post('/', async (req, res) => {
     const { name, apiToken, accountId } = req.body;
 
     if (!name || !apiToken) {
+      await createLog({
+        userId,
+        action: 'CREATE',
+        resourceType: 'CREDENTIAL',
+        status: 'FAILED',
+        ipAddress: req.ip,
+        newValue: JSON.stringify({ name, accountId }),
+        errorMessage: '账户名称和 API Token 不能为空',
+      });
       return errorResponse(res, '账户名称和 API Token 不能为空', 400);
     }
 
@@ -59,6 +68,15 @@ router.post('/', async (req, res) => {
       const cfService = new CloudflareService(apiToken);
       await cfService.getDomains();
     } catch (error: any) {
+      await createLog({
+        userId,
+        action: 'CREATE',
+        resourceType: 'CREDENTIAL',
+        status: 'FAILED',
+        ipAddress: req.ip,
+        newValue: JSON.stringify({ name, accountId }),
+        errorMessage: `Token 验证失败: ${error.message}`,
+      });
       return errorResponse(res, `Token 验证失败: ${error.message}`, 400);
     }
 
@@ -100,6 +118,18 @@ router.post('/', async (req, res) => {
 
     return successResponse(res, { credential }, '凭证创建成功', 201);
   } catch (error: any) {
+    try {
+      const userId = (req as AuthRequest).user!.id;
+      await createLog({
+        userId,
+        action: 'CREATE',
+        resourceType: 'CREDENTIAL',
+        status: 'FAILED',
+        ipAddress: req.ip,
+        newValue: JSON.stringify({ name: req.body?.name, accountId: req.body?.accountId }),
+        errorMessage: error.message || '创建凭证失败',
+      });
+    } catch {}
     return errorResponse(res, error.message || '创建凭证失败', 500);
   }
 });
@@ -119,6 +149,17 @@ router.put('/:id', async (req, res) => {
     });
 
     if (!existing) {
+      await createLog({
+        userId,
+        action: 'UPDATE',
+        resourceType: 'CREDENTIAL',
+        status: 'FAILED',
+        ipAddress: req.ip,
+        recordName: name,
+        oldValue: JSON.stringify({ id: credentialId }),
+        newValue: JSON.stringify({ name, accountId, isDefault }),
+        errorMessage: '凭证不存在',
+      });
       return errorResponse(res, '凭证不存在', 404);
     }
 
@@ -134,6 +175,17 @@ router.put('/:id', async (req, res) => {
         await cfService.getDomains();
         updateData.apiToken = encrypt(apiToken);
       } catch (error: any) {
+        await createLog({
+          userId,
+          action: 'UPDATE',
+          resourceType: 'CREDENTIAL',
+          status: 'FAILED',
+          ipAddress: req.ip,
+          recordName: existing.name,
+          oldValue: JSON.stringify({ id: existing.id, name: existing.name, accountId: existing.accountId, isDefault: existing.isDefault }),
+          newValue: JSON.stringify({ name, accountId, isDefault }),
+          errorMessage: `Token 验证失败: ${error.message}`,
+        });
         return errorResponse(res, `Token 验证失败: ${error.message}`, 400);
       }
     }
@@ -173,6 +225,18 @@ router.put('/:id', async (req, res) => {
 
     return successResponse(res, { credential }, '凭证更新成功');
   } catch (error: any) {
+    try {
+      const userId = (req as AuthRequest).user!.id;
+      await createLog({
+        userId,
+        action: 'UPDATE',
+        resourceType: 'CREDENTIAL',
+        status: 'FAILED',
+        ipAddress: req.ip,
+        recordName: req.body?.name,
+        errorMessage: error.message || '更新凭证失败',
+      });
+    } catch {}
     return errorResponse(res, error.message || '更新凭证失败', 500);
   }
 });
@@ -200,6 +264,15 @@ router.delete('/:id', async (req, res) => {
     });
 
     if (count === 1) {
+      await createLog({
+        userId,
+        action: 'DELETE',
+        resourceType: 'CREDENTIAL',
+        status: 'FAILED',
+        ipAddress: req.ip,
+        oldValue: JSON.stringify({ id: existing.id, name: existing.name }),
+        errorMessage: '不能删除最后一个凭证',
+      });
       return errorResponse(res, '不能删除最后一个凭证', 400);
     }
 
@@ -234,6 +307,18 @@ router.delete('/:id', async (req, res) => {
 
     return successResponse(res, null, '凭证删除成功');
   } catch (error: any) {
+    try {
+      const userId = (req as AuthRequest).user!.id;
+      await createLog({
+        userId,
+        action: 'DELETE',
+        resourceType: 'CREDENTIAL',
+        status: 'FAILED',
+        ipAddress: req.ip,
+        oldValue: JSON.stringify({ id: parseInt(req.params.id) }),
+        errorMessage: error.message || '删除凭证失败',
+      });
+    } catch {}
     return errorResponse(res, error.message || '删除凭证失败', 500);
   }
 });
@@ -261,8 +346,30 @@ router.post('/:id/verify', async (req, res) => {
 
     try {
       await cfService.getDomains();
+
+      await createLog({
+        userId,
+        action: 'UPDATE',
+        resourceType: 'CREDENTIAL',
+        recordName: credential.name,
+        status: 'SUCCESS',
+        ipAddress: req.ip,
+        newValue: JSON.stringify({ id: credential.id, valid: true }),
+      });
+
       return successResponse(res, { valid: true }, 'Token 验证成功');
     } catch (error: any) {
+      await createLog({
+        userId,
+        action: 'UPDATE',
+        resourceType: 'CREDENTIAL',
+        recordName: credential.name,
+        status: 'FAILED',
+        ipAddress: req.ip,
+        newValue: JSON.stringify({ id: credential.id, valid: false }),
+        errorMessage: error?.message || 'Token 验证失败',
+      });
+
       return successResponse(res, { valid: false, error: error.message }, 'Token 验证失败');
     }
   } catch (error: any) {

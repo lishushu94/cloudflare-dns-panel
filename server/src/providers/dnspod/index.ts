@@ -24,6 +24,7 @@ import {
 } from '../base/types';
 import { buildTc3Headers, Tc3Credentials } from './auth';
 import { defaultLines, fromDnspodLine, toDnspodLine } from './lines';
+import { DnspodTokenProvider, DNSPOD_TOKEN_CAPABILITIES } from '../dnspod_token';
 
 function toDnspodRecordType(type: string): string {
   const t = String(type || '').trim();
@@ -215,9 +216,10 @@ export const DNSPOD_CAPABILITIES: ProviderCapabilities = {
   recordTypes: ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'SRV', 'CAA', 'NS', 'PTR', 'REDIRECT_URL', 'FORWARD_URL'],
 
   authFields: [
-    { name: 'secretId', label: 'SecretId', type: 'text', required: true, placeholder: '输入 SecretId' },
-    { name: 'secretKey', label: 'SecretKey', type: 'password', required: true, placeholder: '输入 SecretKey' },
-    { name: 'token', label: 'Token (可选)', type: 'password', required: false, placeholder: '临时凭证 Token' },
+    { name: 'secretId', label: 'SecretId', type: 'text', required: false, placeholder: '输入 SecretId（方式一）' },
+    { name: 'secretKey', label: 'SecretKey', type: 'password', required: false, placeholder: '输入 SecretKey（方式一）' },
+    { name: 'tokenId', label: 'ID', type: 'text', required: false, placeholder: '输入 ID（方式二）' },
+    { name: 'token', label: 'Token', type: 'password', required: false, placeholder: '输入 Token（方式二）', helpText: '两种方式二选一：SecretId/SecretKey 或 DNSPod Token（ID + Token）' },
   ],
 
   domainCacheTtl: 300,
@@ -233,18 +235,35 @@ export class DnspodProvider extends BaseProvider {
   private readonly host = 'dnspod.tencentcloudapi.com';
   private readonly service = 'dnspod';
   private readonly version = '2021-03-23';
-  private readonly creds: Tc3Credentials;
+  private readonly creds?: Tc3Credentials;
+  private readonly legacyProvider?: DnspodTokenProvider;
   private readonly lineNameMapByZone = new Map<string, Map<string, string>>();
 
   constructor(credentials: ProviderCredentials) {
-    super(credentials, DNSPOD_CAPABILITIES);
+    const { secretId, secretKey, tokenId, token } = credentials.secrets || {};
+    const hasLegacyPair = Boolean(tokenId && token);
+    const hasLegacyCombined = Boolean(!hasLegacyPair && token && String(token).includes(','));
+    const useLegacy = hasLegacyPair || hasLegacyCombined;
+    const hasTc3 = Boolean(secretId && secretKey);
 
-    const { secretId, secretKey, token } = credentials.secrets || {};
-    if (!secretId || !secretKey) {
-      throw this.createError('MISSING_CREDENTIALS', '缺少 DNSPod SecretId/SecretKey');
+    super(credentials, useLegacy ? { ...DNSPOD_CAPABILITIES, recordTypes: [...DNSPOD_TOKEN_CAPABILITIES.recordTypes] } : DNSPOD_CAPABILITIES);
+
+    if (useLegacy) {
+      this.legacyProvider = new DnspodTokenProvider({
+        provider: ProviderType.DNSPOD_TOKEN,
+        secrets: hasLegacyPair
+          ? { tokenId: String(tokenId || '').trim(), token: String(token || '').trim() }
+          : { login_token: String(token || '').trim() },
+        accountId: credentials.accountId,
+      });
+      return;
     }
 
-    this.creds = { secretId, secretKey, token };
+    if (!hasTc3) {
+      throw this.createError('MISSING_CREDENTIALS', '缺少 DNSPod SecretId/SecretKey 或 DNSPod Token（Token ID + Token）');
+    }
+
+    this.creds = { secretId: String(secretId).trim(), secretKey: String(secretKey).trim() };
   }
 
   private wrapError(err: unknown, code = 'DNSPOD_ERROR'): DnsProviderError {
@@ -254,6 +273,10 @@ export class DnspodProvider extends BaseProvider {
   }
 
   private async request<T>(action: string, payload: Record<string, unknown>): Promise<T> {
+    if (!this.creds) {
+      throw this.createError('MISSING_CREDENTIALS', '缺少 DNSPod SecretId/SecretKey');
+    }
+
     const body = JSON.stringify(payload || {});
     const timestamp = Math.floor(Date.now() / 1000);
 
@@ -430,6 +453,7 @@ export class DnspodProvider extends BaseProvider {
 
   async checkAuth(): Promise<boolean> {
     try {
+      if (this.legacyProvider) return await this.legacyProvider.checkAuth();
       await this.request<DescribeDomainListResponse>('DescribeDomainList', { Offset: 0, Limit: 1 });
       return true;
     } catch {
@@ -439,6 +463,7 @@ export class DnspodProvider extends BaseProvider {
 
   async getZones(page?: number, pageSize?: number, keyword?: string): Promise<ZoneListResult> {
     try {
+      if (this.legacyProvider) return await this.legacyProvider.getZones(page, pageSize, keyword);
       const p = Math.max(1, page || 1);
       const ps = Math.max(1, pageSize || 20);
       const offset = (p - 1) * ps;
@@ -468,6 +493,7 @@ export class DnspodProvider extends BaseProvider {
 
   async getZone(zoneId: string): Promise<Zone> {
     try {
+      if (this.legacyProvider) return await this.legacyProvider.getZone(zoneId);
       const idNum = Number(zoneId);
       if (!Number.isFinite(idNum)) {
         throw this.createError('INVALID_ZONE_ID', `DomainId 必须为数字: ${zoneId}`, { httpStatus: 400 });
@@ -489,6 +515,7 @@ export class DnspodProvider extends BaseProvider {
 
   async getRecords(zoneId: string, params?: RecordQueryParams): Promise<RecordListResult> {
     try {
+      if (this.legacyProvider) return await this.legacyProvider.getRecords(zoneId, params);
       const zone = await this.getZone(zoneId);
       const domainId = Number(zone.id);
 
@@ -559,6 +586,7 @@ export class DnspodProvider extends BaseProvider {
 
   async getRecord(zoneId: string, recordId: string): Promise<DnsRecord> {
     try {
+      if (this.legacyProvider) return await this.legacyProvider.getRecord(zoneId, recordId);
       const zone = await this.getZone(zoneId);
       const rid = Number(recordId);
       if (!Number.isFinite(rid)) {
@@ -619,6 +647,7 @@ export class DnspodProvider extends BaseProvider {
 
   async createRecord(zoneId: string, params: CreateRecordParams): Promise<DnsRecord> {
     try {
+      if (this.legacyProvider) return await this.legacyProvider.createRecord(zoneId, params);
       const zone = await this.getZone(zoneId);
       const domainId = Number(zone.id);
 
@@ -689,6 +718,7 @@ export class DnspodProvider extends BaseProvider {
 
   async updateRecord(zoneId: string, recordId: string, params: UpdateRecordParams): Promise<DnsRecord> {
     try {
+      if (this.legacyProvider) return await this.legacyProvider.updateRecord(zoneId, recordId, params);
       const zone = await this.getZone(zoneId);
       const domainId = Number(zone.id);
       const rid = Number(recordId);
@@ -760,6 +790,7 @@ export class DnspodProvider extends BaseProvider {
 
   async deleteRecord(zoneId: string, recordId: string): Promise<boolean> {
     try {
+      if (this.legacyProvider) return await this.legacyProvider.deleteRecord(zoneId, recordId);
       const zone = await this.getZone(zoneId);
       await this.request<CommonOkResponse>('DeleteRecord', {
         Domain: zone.name,
@@ -774,6 +805,7 @@ export class DnspodProvider extends BaseProvider {
 
   async setRecordStatus(zoneId: string, recordId: string, enabled: boolean): Promise<boolean> {
     try {
+      if (this.legacyProvider) return await this.legacyProvider.setRecordStatus(zoneId, recordId, enabled);
       const zone = await this.getZone(zoneId);
       await this.request<CommonOkResponse>('ModifyRecordStatus', {
         Domain: zone.name,
@@ -789,6 +821,7 @@ export class DnspodProvider extends BaseProvider {
 
   async getLines(zoneId?: string): Promise<LineListResult> {
     try {
+      if (this.legacyProvider) return await this.legacyProvider.getLines(zoneId);
       if (!zoneId) return { lines: defaultLines() };
 
       const zone = await this.getZone(zoneId);
@@ -802,6 +835,7 @@ export class DnspodProvider extends BaseProvider {
 
   async getMinTTL(_zoneId?: string): Promise<number> {
     try {
+      if (this.legacyProvider) return await this.legacyProvider.getMinTTL(_zoneId);
       if (!_zoneId) return 600;
 
       const zone = await this.getZone(_zoneId);
@@ -827,6 +861,7 @@ export class DnspodProvider extends BaseProvider {
 
   async addZone(domain: string): Promise<Zone> {
     try {
+      if (this.legacyProvider && this.legacyProvider.addZone) return await this.legacyProvider.addZone(domain);
       await this.request<CommonOkResponse>('CreateDomain', { Domain: domain });
       const list = await this.getZones(1, 50, domain);
       const found = list.zones.find(z => z.name.toLowerCase() === domain.toLowerCase());

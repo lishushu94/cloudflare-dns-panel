@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { CloudflareService } from '../services/cloudflare';
+import { LoggerService } from '../services/logger';
 import { successResponse, errorResponse } from '../utils/response';
 import { authenticateToken } from '../middleware/auth';
 import { generalLimiter } from '../middleware/rateLimit';
+import { getClientIp } from '../middleware/logger';
 import { AuthRequest } from '../types';
 import { decrypt } from '../utils/encryption';
 
@@ -193,6 +195,16 @@ router.post('/refresh', authenticateToken, async (req: AuthRequest, res) => {
         cfService.clearCache('domains');
       }
 
+      await LoggerService.createLog({
+        userId,
+        action: 'UPDATE',
+        resourceType: 'ZONE',
+        recordName: 'refresh_cache',
+        status: 'SUCCESS',
+        ipAddress: getClientIp(req),
+        newValue: JSON.stringify({ credentialId: 'all' }),
+      });
+
       return successResponse(res, null, '所有缓存已刷新');
     }
 
@@ -227,8 +239,29 @@ router.post('/refresh', authenticateToken, async (req: AuthRequest, res) => {
     const cfService = new CloudflareService(apiToken);
     cfService.clearCache('domains');
 
+    await LoggerService.createLog({
+      userId,
+      action: 'UPDATE',
+      resourceType: 'ZONE',
+      recordName: 'refresh_cache',
+      status: 'SUCCESS',
+      ipAddress: getClientIp(req),
+      newValue: JSON.stringify({ credentialId: credentialId ? String(credentialId) : 'default' }),
+    });
+
     return successResponse(res, null, '缓存已刷新');
   } catch (error: any) {
+    try {
+      await LoggerService.createLog({
+        userId: req.user!.id,
+        action: 'UPDATE',
+        resourceType: 'ZONE',
+        recordName: 'refresh_cache',
+        status: 'FAILED',
+        ipAddress: getClientIp(req),
+        errorMessage: error?.message || '刷新缓存失败',
+      });
+    } catch {}
     return errorResponse(res, error.message, 400);
   }
 });

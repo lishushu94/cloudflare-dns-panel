@@ -101,19 +101,38 @@ router.put('/:zoneId/fallback_origin', authenticateToken, dnsLimiter, async (req
     const credentialId = req.query.credentialId as string | undefined;
     const apiToken = await getCloudflareApiToken(req.user!.id, zoneId, credentialId);
     const cfService = new CloudflareService(apiToken);
+    let oldOrigin: any;
+    try {
+      oldOrigin = await cfService.getFallbackOrigin(zoneId);
+    } catch {}
     const result = await cfService.updateFallbackOrigin(zoneId, origin);
 
     await LoggerService.createLog({
       userId: req.user!.id,
       action: 'UPDATE',
       resourceType: 'FALLBACK_ORIGIN',
-      newValue: origin,
+      domain: zoneId,
+      recordName: 'fallback_origin',
+      oldValue: oldOrigin !== undefined ? JSON.stringify(oldOrigin) : undefined,
+      newValue: JSON.stringify({ origin }),
       status: 'SUCCESS',
       ipAddress: getClientIp(req),
     });
 
     return successResponse(res, { origin: result }, '更新回退源成功');
   } catch (error: any) {
+    try {
+      await LoggerService.createLog({
+        userId: req.user!.id,
+        action: 'UPDATE',
+        resourceType: 'FALLBACK_ORIGIN',
+        domain: req.params.zoneId,
+        recordName: 'fallback_origin',
+        status: 'FAILED',
+        errorMessage: error.message,
+        ipAddress: getClientIp(req),
+      });
+    } catch {}
     const statusCode = typeof error?.status === 'number'
       ? error.status
       : (typeof error?.statusCode === 'number' ? error.statusCode : 400);
@@ -170,6 +189,7 @@ router.post('/:zoneId', authenticateToken, dnsLimiter, async (req: AuthRequest, 
       userId: req.user!.id,
       action: 'CREATE',
       resourceType: 'HOSTNAME',
+      domain: zoneId,
       recordName: hostname,
       newValue: JSON.stringify(result),
       status: 'SUCCESS',
@@ -183,6 +203,7 @@ router.post('/:zoneId', authenticateToken, dnsLimiter, async (req: AuthRequest, 
       userId: req.user!.id,
       action: 'CREATE',
       resourceType: 'HOSTNAME',
+      domain: req.params.zoneId,
       recordName: req.body.hostname,
       status: 'FAILED',
       errorMessage: error.message,
@@ -215,6 +236,8 @@ router.delete('/:zoneId/:hostnameId', authenticateToken, dnsLimiter, async (req:
       userId: req.user!.id,
       action: 'DELETE',
       resourceType: 'HOSTNAME',
+      domain: zoneId,
+      recordName: hostnameId,
       status: 'SUCCESS',
       ipAddress: getClientIp(req),
     });
@@ -226,6 +249,8 @@ router.delete('/:zoneId/:hostnameId', authenticateToken, dnsLimiter, async (req:
       userId: req.user!.id,
       action: 'DELETE',
       resourceType: 'HOSTNAME',
+      domain: req.params.zoneId,
+      recordName: req.params.hostnameId,
       status: 'FAILED',
       errorMessage: error.message,
       ipAddress: getClientIp(req),

@@ -1,4 +1,4 @@
-import { Box, Card, CardContent, Grid, Typography, Radio, FormControlLabel, alpha, useTheme } from '@mui/material';
+import { Box, Card, CardContent, Grid, Typography, Radio, alpha, useTheme } from '@mui/material';
 import {
   CloudQueue,
   Storage,
@@ -25,6 +25,7 @@ const PROVIDER_COLORS: Record<string, string> = {
   cloudflare: '#f38020',
   aliyun: '#ff6a00',
   dnspod: '#0052d9',
+  dnspod_token: '#0052d9',
   huawei: '#e60012',
   baidu: '#2932e1',
   west: '#1e88e5',
@@ -47,6 +48,7 @@ export const getProviderIcon = (type: string, size: 'small' | 'large' = 'large')
     case 'aliyun':
       return <Storage fontSize={fontSize} sx={sx} />;
     case 'dnspod':
+    case 'dnspod_token':
       return <Language fontSize={fontSize} sx={sx} />;
     case 'huawei':
       return <Cloud fontSize={fontSize} sx={sx} />;
@@ -95,7 +97,7 @@ export default function ProviderSelector({ providers, selectedProvider, onSelect
       },
     }}>
       <Grid container spacing={1.5}>
-        {providers.map((provider) => {
+        {providers.filter(p => p.type !== 'dnspod_token').map((provider) => {
           const providerType = provider.type;
           const isSelected = !!providerType && selectedProvider === providerType;
           const brandColor = PROVIDER_COLORS[providerType] || theme.palette.primary.main;

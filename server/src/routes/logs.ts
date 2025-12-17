@@ -3,6 +3,7 @@ import { LoggerService } from '../services/logger';
 import { successResponse, errorResponse, paginatedResponse } from '../utils/response';
 import { authenticateToken } from '../middleware/auth';
 import { generalLimiter } from '../middleware/rateLimit';
+import { getClientIp } from '../middleware/logger';
 import { AuthRequest } from '../types';
 
 const router = Router();
@@ -62,8 +63,29 @@ router.delete('/cleanup', authenticateToken, async (req: AuthRequest, res) => {
 
     const count = await LoggerService.cleanupOldLogs(parseInt(retentionDays as string, 10));
 
+    await LoggerService.createLog({
+      userId: req.user!.id,
+      action: 'DELETE',
+      resourceType: 'USER',
+      recordName: 'cleanup_logs',
+      status: 'SUCCESS',
+      ipAddress: getClientIp(req),
+      newValue: JSON.stringify({ retentionDays: String(retentionDays), deleted: count }),
+    });
+
     return successResponse(res, { count }, `已清理 ${count} 条过期日志`);
   } catch (error: any) {
+    try {
+      await LoggerService.createLog({
+        userId: req.user!.id,
+        action: 'DELETE',
+        resourceType: 'USER',
+        recordName: 'cleanup_logs',
+        status: 'FAILED',
+        ipAddress: getClientIp(req),
+        errorMessage: error?.message || '清理日志失败',
+      });
+    } catch {}
     return errorResponse(res, error.message, 400);
   }
 });
