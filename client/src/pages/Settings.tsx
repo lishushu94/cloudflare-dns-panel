@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Box,
   Typography,
@@ -31,12 +31,19 @@ interface PasswordForm {
   confirmPassword: string;
 }
 
+const DOMAINS_PER_PAGE_STORAGE_KEY = 'dns_domains_per_page';
+const DOMAINS_PER_PAGE_CHANGED_EVENT = 'dns_domains_per_page_changed';
+
 /**
  * 设置页面
  */
 export default function Settings() {
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordError, setPasswordError] = useState('');
+
+  const [domainsPerPage, setDomainsPerPage] = useState<string>('20');
+  const [domainsPerPageSuccess, setDomainsPerPageSuccess] = useState('');
+  const [domainsPerPageError, setDomainsPerPageError] = useState('');
 
   const [showOldPassword, setShowOldPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -50,6 +57,14 @@ export default function Settings() {
   } = useForm<PasswordForm>();
 
   const newPassword = watch('newPassword');
+
+  useEffect(() => {
+    const raw = localStorage.getItem(DOMAINS_PER_PAGE_STORAGE_KEY);
+    const parsed = raw ? parseInt(raw, 10) : NaN;
+    if (Number.isFinite(parsed) && parsed >= 20) {
+      setDomainsPerPage(String(parsed));
+    }
+  }, []);
 
   const onPasswordSubmit = async (data: PasswordForm) => {
     try {
@@ -66,6 +81,23 @@ export default function Settings() {
     } catch (err: any) {
       setPasswordError((err as any)?.message || String(err) || '密码修改失败');
     }
+  };
+
+  const onSaveDomainsPerPage = () => {
+    setDomainsPerPageSuccess('');
+    setDomainsPerPageError('');
+
+    const parsed = parseInt(domainsPerPage, 10);
+    if (!Number.isFinite(parsed) || parsed < 20) {
+      setDomainsPerPageError('单页显示域名数量最低为 20');
+      return;
+    }
+
+    const safe = Math.max(20, Math.floor(parsed));
+    localStorage.setItem(DOMAINS_PER_PAGE_STORAGE_KEY, String(safe));
+    window.dispatchEvent(new CustomEvent(DOMAINS_PER_PAGE_CHANGED_EVENT, { detail: safe }));
+    setDomainsPerPage(String(safe));
+    setDomainsPerPageSuccess('设置已保存');
   };
 
   return (
@@ -164,6 +196,48 @@ export default function Settings() {
                   </Box>
                 </Stack>
               </form>
+
+              <Divider sx={{ my: 3 }} />
+
+              <Stack spacing={2}>
+                <Typography variant="subtitle1" fontWeight={600}>
+                  域名列表每页显示数量
+                </Typography>
+
+                {domainsPerPageSuccess && (
+                  <Alert severity="success">
+                    {domainsPerPageSuccess}
+                  </Alert>
+                )}
+                {domainsPerPageError && (
+                  <Alert severity="error">
+                    {domainsPerPageError}
+                  </Alert>
+                )}
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ xs: 'stretch', sm: 'flex-end' }}>
+                  <TextField
+                    value={domainsPerPage}
+                    onChange={(e) => setDomainsPerPage(e.target.value)}
+                    type="number"
+                    label="每页域名数量"
+                    size="small"
+                    sx={{ width: { xs: '100%', sm: 240 } }}
+                    InputProps={{
+                      inputProps: { min: 20 },
+                    }}
+                  />
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<SaveIcon />}
+                    onClick={onSaveDomainsPerPage}
+                    sx={{ height: 40 }}
+                  >
+                    保存
+                  </Button>
+                </Stack>
+              </Stack>
             </CardContent>
           </Card>
         </Grid>

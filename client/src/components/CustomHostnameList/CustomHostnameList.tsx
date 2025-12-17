@@ -17,6 +17,8 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  FormControlLabel,
+  Checkbox,
   Stack,
   IconButton,
   Tooltip,
@@ -69,12 +71,31 @@ const CustomHostnameList = forwardRef<CustomHostnameListRef, CustomHostnameListP
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showFallbackDialog, setShowFallbackDialog] = useState(false);
   const [hostname, setHostname] = useState('');
+  const [useCustomOriginServer, setUseCustomOriginServer] = useState(false);
+  const [customOriginServer, setCustomOriginServer] = useState('');
+  const [customOriginServerError, setCustomOriginServerError] = useState('');
   const [originInput, setOriginInput] = useState('');
   const [inputError, setInputError] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  const closeAddDialog = () => {
+    setShowAddDialog(false);
+    setHostname('');
+    setInputError(false);
+    setUseCustomOriginServer(false);
+    setCustomOriginServer('');
+    setCustomOriginServerError('');
+  };
+
   useImperativeHandle(ref, () => ({
-    openAddDialog: () => setShowAddDialog(true),
+    openAddDialog: () => {
+      setHostname('');
+      setInputError(false);
+      setUseCustomOriginServer(false);
+      setCustomOriginServer('');
+      setCustomOriginServerError('');
+      setShowAddDialog(true);
+    },
     openFallbackDialog: () => setShowFallbackDialog(true),
   }));
 
@@ -102,12 +123,19 @@ const CustomHostnameList = forwardRef<CustomHostnameListRef, CustomHostnameListP
   }, [originData, showFallbackDialog]);
 
   const createMutation = useMutation({
-    mutationFn: (hostname: string) => createCustomHostname(zoneId, hostname, credentialId),
+    mutationFn: (input: { hostname: string; customOriginServer?: string }) =>
+      createCustomHostname(zoneId, input.hostname, {
+        credentialId,
+        customOriginServer: input.customOriginServer,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['custom-hostnames', zoneId, credentialId] });
       setShowAddDialog(false);
       setHostname('');
       setInputError(false);
+      setUseCustomOriginServer(false);
+      setCustomOriginServer('');
+      setCustomOriginServerError('');
     },
   });
 
@@ -127,11 +155,49 @@ const CustomHostnameList = forwardRef<CustomHostnameListRef, CustomHostnameListP
   });
 
   const handleAdd = () => {
-    if (!hostname.trim()) {
+    setCustomOriginServerError('');
+
+    const trimmedHostname = hostname.trim();
+    if (!trimmedHostname) {
       setInputError(true);
       return;
     }
-    createMutation.mutate(hostname);
+
+    let origin: string | undefined;
+    if (useCustomOriginServer) {
+      const trimmedOrigin = customOriginServer.trim();
+      if (trimmedOrigin) {
+        if (/^https?:\/\//i.test(trimmedOrigin)) {
+          setCustomOriginServerError('源服务器不支持包含 http:// 或 https://');
+          return;
+        }
+
+        if (trimmedOrigin.includes('*')) {
+          setCustomOriginServerError('源服务器不支持通配符');
+          return;
+        }
+
+        if (trimmedOrigin.includes(':')) {
+          setCustomOriginServerError('源服务器不支持端口或 IP 地址，请填写域名');
+          return;
+        }
+
+        if (trimmedOrigin.includes('/') || trimmedOrigin.includes(' ')) {
+          setCustomOriginServerError('源服务器格式不正确');
+          return;
+        }
+
+        const ipv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+        if (ipv4.test(trimmedOrigin)) {
+          setCustomOriginServerError('Cloudflare 自定义源服务器不支持 IP 地址，请填写域名');
+          return;
+        }
+
+        origin = trimmedOrigin;
+      }
+    }
+
+    createMutation.mutate({ hostname: trimmedHostname, customOriginServer: origin });
   };
 
   const handleUpdateOrigin = () => {
@@ -534,7 +600,7 @@ const CustomHostnameList = forwardRef<CustomHostnameListRef, CustomHostnameListP
       {/* 添加主机名对话框 */}
       <Dialog 
         open={showAddDialog} 
-        onClose={() => setShowAddDialog(false)} 
+        onClose={closeAddDialog} 
         maxWidth="sm" 
         fullWidth
         PaperProps={{
@@ -548,23 +614,58 @@ const CustomHostnameList = forwardRef<CustomHostnameListRef, CustomHostnameListP
           </Stack>
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
-          <TextField
-            fullWidth
-            margin="dense"
-            label="主机名"
-            placeholder="example.com"
-            value={hostname}
-            onChange={(e) => {
-              setHostname(e.target.value);
-              if (inputError) setInputError(false);
-            }}
-            error={inputError}
-            helperText={inputError ? "主机名不能为空" : "输入您要添加的自定义域名，需要先在 DNS 中配置 CNAME 记录。"}
-            InputLabelProps={{ shrink: true }}
-          />
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              fullWidth
+              margin="dense"
+              label="主机名"
+              placeholder="example.com"
+              value={hostname}
+              onChange={(e) => {
+                setHostname(e.target.value);
+                if (inputError) setInputError(false);
+              }}
+              error={inputError}
+              helperText={inputError ? "主机名不能为空" : "输入您要添加的自定义域名，需要先在 DNS 中配置 CNAME 记录。"}
+              InputLabelProps={{ shrink: true }}
+            />
+
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={useCustomOriginServer}
+                  onChange={(e) => {
+                    setUseCustomOriginServer(e.target.checked);
+                    setCustomOriginServerError('');
+                    if (!e.target.checked) {
+                      setCustomOriginServer('');
+                    }
+                  }}
+                />
+              }
+              label="使用自定义源服务器"
+            />
+
+            <Collapse in={useCustomOriginServer} timeout="auto" unmountOnExit>
+              <TextField
+                fullWidth
+                margin="dense"
+                label="自定义源服务器"
+                placeholder="origin.example.com"
+                value={customOriginServer}
+                onChange={(e) => {
+                  setCustomOriginServer(e.target.value);
+                  if (customOriginServerError) setCustomOriginServerError('');
+                }}
+                error={!!customOriginServerError}
+                helperText={customOriginServerError || "留空使用默认源服务器；填写时仅支持域名（hostname），不支持 IP。"}
+                InputLabelProps={{ shrink: true }}
+              />
+            </Collapse>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 3 }}>
-          <Button onClick={() => setShowAddDialog(false)} color="inherit">取消</Button>
+          <Button onClick={closeAddDialog} color="inherit">取消</Button>
           <Button
             onClick={handleAdd}
             variant="contained"

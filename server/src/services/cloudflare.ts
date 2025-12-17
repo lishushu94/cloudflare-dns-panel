@@ -48,8 +48,33 @@ export class CloudflareService {
     }
 
     try {
-      const response = await this.client.zones.list();
-      const domains: Domain[] = (response.result || []).map((zone: any) => ({
+      const perPage = 50;
+      let page = 1;
+      let totalPages = 1;
+      const all: any[] = [];
+
+      while (page <= totalPages && page <= 200) {
+        const response = await this.client.zones.list({
+          page,
+          per_page: perPage,
+        } as any);
+
+        const batch = (response as any)?.result || [];
+        all.push(...batch);
+
+        const info = (response as any)?.result_info;
+        const nextTotalPages = typeof info?.total_pages === 'number' ? info.total_pages : undefined;
+        if (typeof nextTotalPages === 'number' && nextTotalPages > 0) {
+          totalPages = nextTotalPages;
+        } else {
+          if (batch.length < perPage) break;
+        }
+
+        if (batch.length === 0) break;
+        page += 1;
+      }
+
+      const domains: Domain[] = all.map((zone: any) => ({
         id: zone.id,
         name: zone.name,
         status: zone.status || 'active',
@@ -98,8 +123,34 @@ export class CloudflareService {
     }
 
     try {
-      const response = await this.client.dns.records.list({ zone_id: zoneId });
-      const records: DNSRecord[] = response.result.map((record: any) => ({
+      const perPage = 100;
+      let page = 1;
+      let totalPages = 1;
+      const all: any[] = [];
+
+      while (page <= totalPages && page <= 200) {
+        const response = await this.client.dns.records.list({
+          zone_id: zoneId,
+          page,
+          per_page: perPage,
+        } as any);
+
+        const batch = (response as any)?.result || [];
+        all.push(...batch);
+
+        const info = (response as any)?.result_info;
+        const nextTotalPages = typeof info?.total_pages === 'number' ? info.total_pages : undefined;
+        if (typeof nextTotalPages === 'number' && nextTotalPages > 0) {
+          totalPages = nextTotalPages;
+        } else {
+          if (batch.length < perPage) break;
+        }
+
+        if (batch.length === 0) break;
+        page += 1;
+      }
+
+      const records: DNSRecord[] = all.map((record: any) => ({
         id: record.id,
         type: record.type,
         name: record.name,
@@ -235,13 +286,20 @@ export class CloudflareService {
   /**
    * 创建自定义主机名
    */
-  async createCustomHostname(zoneId: string, hostname: string): Promise<any> {
+  async createCustomHostname(zoneId: string, hostname: string, customOriginServer?: string): Promise<any> {
     try {
-      const result = await this.client.customHostnames.create({
+      const payload: Record<string, unknown> = {
         zone_id: zoneId,
         hostname,
         ssl: { method: 'http', type: 'dv' },
-      });
+      };
+
+      const origin = typeof customOriginServer === 'string' ? customOriginServer.trim() : '';
+      if (origin) {
+        payload.custom_origin_server = origin;
+      }
+
+      const result = await this.client.customHostnames.create(payload as any);
       return result;
     } catch (error: any) {
       const err = new Error(`创建自定义主机名失败: ${error.message}`);

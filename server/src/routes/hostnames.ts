@@ -172,17 +172,41 @@ router.get('/:zoneId', authenticateToken, generalLimiter, async (req: AuthReques
 router.post('/:zoneId', authenticateToken, dnsLimiter, async (req: AuthRequest, res) => {
   try {
     const { zoneId } = req.params;
-    const { hostname } = req.body;
+    const { hostname, customOriginServer } = req.body;
 
     if (!hostname) {
       return errorResponse(res, '缺少主机名参数', 400);
+    }
+
+    const originRaw = typeof customOriginServer === 'string' ? customOriginServer.trim() : '';
+    let origin: string | undefined;
+    if (originRaw) {
+      if (/^https?:\/\//i.test(originRaw)) {
+        return errorResponse(res, '自定义源服务器不支持包含 http:// 或 https://', 400);
+      }
+      if (originRaw.includes('*')) {
+        return errorResponse(res, '自定义源服务器不支持通配符', 400);
+      }
+      if (originRaw.includes(':')) {
+        return errorResponse(res, '自定义源服务器不支持端口或 IP 地址，请填写域名', 400);
+      }
+      if (originRaw.includes('/') || originRaw.includes(' ')) {
+        return errorResponse(res, '自定义源服务器格式不正确', 400);
+      }
+
+      const ipv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+      if (ipv4.test(originRaw)) {
+        return errorResponse(res, '自定义源服务器不支持 IP 地址，请填写域名', 400);
+      }
+
+      origin = originRaw;
     }
 
     const credentialId = req.query.credentialId as string | undefined;
     const apiToken = await getCloudflareApiToken(req.user!.id, zoneId, credentialId);
     const cfService = new CloudflareService(apiToken);
 
-    const result = await cfService.createCustomHostname(zoneId, hostname);
+    const result = await cfService.createCustomHostname(zoneId, hostname, origin);
 
     // 记录日志
     await LoggerService.createLog({

@@ -177,10 +177,8 @@ export class SpaceshipProvider extends BaseProvider {
 
   private headers(): Record<string, string> {
     return {
-      Host: this.host,
       'X-API-Key': this.apiKey,
       'X-API-Secret': this.apiSecret,
-      'Content-Type': 'application/json; charset=utf-8',
     };
   }
 
@@ -197,9 +195,12 @@ export class SpaceshipProvider extends BaseProvider {
           .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
           .join('&')
       : '';
-    const payload = body === undefined ? '' : JSON.stringify(body);
+    const payload = body === undefined ? undefined : JSON.stringify(body);
     const headers = this.headers();
-    if (payload) headers['Content-Length'] = String(Buffer.byteLength(payload));
+    if (payload !== undefined) {
+      headers['Content-Type'] = 'application/json; charset=utf-8';
+      headers['Content-Length'] = String(Buffer.byteLength(payload));
+    }
 
     return await this.withRetry<T>(
       () =>
@@ -217,7 +218,7 @@ export class SpaceshipProvider extends BaseProvider {
                     reject(
                       this.createError(
                         String(res.statusCode),
-                        json.message || json.error || `Spaceship 错误: ${res.statusCode}`,
+                        json.message || json.error || json.detail || `Spaceship 错误: ${res.statusCode}`,
                         { httpStatus: res.statusCode, meta: json }
                       )
                     );
@@ -231,7 +232,7 @@ export class SpaceshipProvider extends BaseProvider {
             }
           );
           req.on('error', e => reject(this.createError('NETWORK_ERROR', 'Spaceship 请求失败', { cause: e })));
-          if (payload) req.write(payload);
+          if (payload !== undefined) req.write(payload);
           req.end();
         })
     );
@@ -248,7 +249,7 @@ export class SpaceshipProvider extends BaseProvider {
 
   async checkAuth(): Promise<boolean> {
     try {
-      await this.request('GET', '/domains', { take: 1 });
+      await this.request('GET', '/domains', { take: 1, skip: 0 });
       return true;
     } catch {
       return false;

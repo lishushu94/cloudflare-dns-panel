@@ -22,6 +22,7 @@ import {
   IconButton,
   Collapse,
   Divider,
+  TablePagination,
   useTheme,
   useMediaQuery,
 } from '@mui/material';
@@ -59,6 +60,9 @@ import DnsManagement from '@/components/DnsManagement/DnsManagement';
 import ProviderAccountTabs from '@/components/Dashboard/ProviderAccountTabs';
 import { useProvider } from '@/contexts/ProviderContext';
 
+const DOMAINS_PER_PAGE_STORAGE_KEY = 'dns_domains_per_page';
+const DOMAINS_PER_PAGE_CHANGED_EVENT = 'dns_domains_per_page_changed';
+
 const PROVIDER_CONFIG: Record<ProviderType, { icon: React.ReactNode; color: string; name: string }> = {
   cloudflare: { icon: <CloudflareIcon />, color: '#f38020', name: 'Cloudflare' },
   aliyun: { icon: <AliyunIcon />, color: '#ff6a00', name: '阿里云' },
@@ -78,6 +82,8 @@ const PROVIDER_CONFIG: Record<ProviderType, { icon: React.ReactNode; color: stri
 export default function Dashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedDomainKey, setExpandedDomainKey] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
@@ -87,6 +93,29 @@ export default function Dashboard() {
   const [allScopeCredentialId, setAllScopeCredentialId] = useState<number | 'all'>('all');
 
   const { selectedCredentialId, selectedProvider, credentials, getCredentialsByProvider } = useProvider();
+
+  useEffect(() => {
+    const raw = localStorage.getItem(DOMAINS_PER_PAGE_STORAGE_KEY);
+    const parsed = raw ? parseInt(raw, 10) : NaN;
+    if (Number.isFinite(parsed) && parsed >= 20) {
+      setRowsPerPage(parsed);
+    }
+
+    const onDomainsPerPageChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<number>)?.detail;
+      const next = Number.isFinite(detail) ? detail : parseInt(localStorage.getItem(DOMAINS_PER_PAGE_STORAGE_KEY) || '', 10);
+      if (Number.isFinite(next) && next >= 20) {
+        setRowsPerPage(next);
+        setPage(0);
+        setExpandedDomainKey(null);
+      }
+    };
+
+    window.addEventListener(DOMAINS_PER_PAGE_CHANGED_EVENT, onDomainsPerPageChanged as EventListener);
+    return () => {
+      window.removeEventListener(DOMAINS_PER_PAGE_CHANGED_EVENT, onDomainsPerPageChanged as EventListener);
+    };
+  }, []);
 
   const credentialNameById = useMemo(() => {
     const map = new Map<number, string>();
@@ -194,7 +223,13 @@ export default function Dashboard() {
   useEffect(() => {
     setSearchTerm('');
     setExpandedDomainKey(null);
+    setPage(0);
   }, [selectedCredentialId, selectedProvider, isAllScope, allScopeCredentialId]);
+
+  useEffect(() => {
+    setPage(0);
+    setExpandedDomainKey(null);
+  }, [searchTerm]);
 
   const handleRefresh = async () => {
     if (isAllScope) {
@@ -230,6 +265,20 @@ export default function Dashboard() {
   const filteredDomains = domains.filter((domain) =>
     domain.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const maxPage = Math.max(0, Math.ceil(filteredDomains.length / rowsPerPage) - 1);
+  useEffect(() => {
+    if (page > maxPage) {
+      setPage(0);
+      setExpandedDomainKey(null);
+    }
+  }, [page, maxPage]);
+
+  const pagedDomains = useMemo(() => {
+    const start = page * rowsPerPage;
+    const end = start + rowsPerPage;
+    return filteredDomains.slice(start, end);
+  }, [filteredDomains, page, rowsPerPage]);
 
   const getStatusConfig = (status: string) => {
     const raw = String(status || '').trim();
@@ -277,7 +326,7 @@ export default function Dashboard() {
   // 移动端卡片视图渲染函数
   const renderMobileView = () => (
     <Stack spacing={2}>
-      {filteredDomains.map((domain) => {
+      {pagedDomains.map((domain) => {
         const status = getStatusConfig(domain.status);
         const rowKey = `${domain.id}-${domain.credentialId}`;
         const isExpanded = expandedDomainKey === rowKey;
@@ -395,7 +444,7 @@ export default function Dashboard() {
           </TableRow>
         </TableHead>
         <TableBody>
-          {filteredDomains.map((domain) => {
+          {pagedDomains.map((domain) => {
             const status = getStatusConfig(domain.status);
             const rowKey = `${domain.id}-${domain.credentialId}`;
             const isExpanded = expandedDomainKey === rowKey;
@@ -505,6 +554,11 @@ export default function Dashboard() {
     </TableContainer>
   );
 
+  const handleChangePage = (_event: unknown, newPage: number) => {
+    setPage(newPage);
+    setExpandedDomainKey(null);
+  };
+
   return (
     <Box sx={{ maxWidth: 1600, mx: 'auto' }}>
       {/* 域名列表卡片 (包含顶部的 Tabs) */}
@@ -584,7 +638,20 @@ export default function Dashboard() {
                </Typography>
             </Box>
           ) : (
-            isMobile ? renderMobileView() : renderDesktopView()
+            <>
+              {isMobile ? renderMobileView() : renderDesktopView()}
+              <TablePagination
+                component="div"
+                count={filteredDomains.length}
+                page={page}
+                onPageChange={handleChangePage}
+                rowsPerPage={rowsPerPage}
+                onRowsPerPageChange={() => {}}
+                rowsPerPageOptions={[rowsPerPage]}
+                labelRowsPerPage="每页显示"
+                sx={{ mt: 1 }}
+              />
+            </>
           )}
         </CardContent>
       </Card>

@@ -18,10 +18,15 @@ export const getCustomHostnames = async (
 export const createCustomHostname = async (
   zoneId: string,
   hostname: string,
-  credentialId?: number
+  options?: { credentialId?: number; customOriginServer?: string }
 ): Promise<ApiResponse<{ hostname: CustomHostname }>> => {
-  const params = credentialId !== undefined ? { credentialId } : {};
-  return api.post(`/hostnames/${zoneId}`, { hostname }, { params });
+  const params = options?.credentialId !== undefined ? { credentialId: options.credentialId } : {};
+  const body: Record<string, unknown> = { hostname };
+  const customOriginServer = options?.customOriginServer?.trim();
+  if (customOriginServer) {
+    body.customOriginServer = customOriginServer;
+  }
+  return api.post(`/hostnames/${zoneId}`, body, { params });
 };
 
 /**
